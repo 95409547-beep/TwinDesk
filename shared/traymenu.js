@@ -9,7 +9,7 @@
 //       popup: {checked, set}, screen: [{label, checked, set}], clipboard: {checked, set},
 //       sound: {checked, set}, drag: {checked, set}, shortcuts: {label, checked, set},
 //       found: [{label, click}], byAddress(), lookAgain(), again?: {label, click},
-//       disconnect?: {label, click}, update?: {label, click}, open(), log(), quit(),
+//       disconnect?: {label, click}, update?: {label, click}, windowsBack?: {label, click}, open(), log(), quit(),
 //       rezume?: [{label, click}] (Continue …, Send … to: shared/rezume.js)}
 'use strict';
 
@@ -37,6 +37,7 @@ function template(m) {
   return [
     status,
     ...(m.home ? [{ label: t('Bring Mouse and Keyboard Back'), click: m.home }] : []),
+    ...(m.windowsBack ? [m.windowsBack] : []), // windows moved to the other computer (Apps › Move windows)
     ...(m.rezume && m.rezume.length ? [...m.rezume, sep] : []),
     check(t('Cursor Sharing'), m.shared),
     sep,

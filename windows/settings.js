@@ -6,6 +6,9 @@ const CL = require('../shared/cursorlock.js');
 const { savedLanguage } = require('../shared/i18n.js');
 const { normalizeFolder } = require('../shared/received.js');
 
+// The keys that can be held to move a window to the other computer (the helper reports these).
+const MOVE_KEYS = ['ControlRight', 'ControlLeft', 'ShiftRight', 'ShiftLeft', 'AltRight', 'AltLeft', 'MetaRight', 'MetaLeft'];
+
 const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
 
 const OLD_TABS = { display: 'mac-pc', receive: 'mac-pc', share: 'pc-mac' }; // older names
@@ -162,7 +165,9 @@ function normalize(s) {
     },
     pairSync: pairSync(s.pairSync), // {deviceId: {feature: {out, in}}} (pairsync.js)
     wake: { peers: wakePeers(wk.peers) }, // {deviceId: {name, os, macs, address, at}} from wol.info
-    pcApps: { allow: bool(pca.allow, was) },
+    // moveWindows: a window dragged past the shared edge with moveKey held goes to the other
+    // computer (pcapps.js moveOut), off until switched on; moveKey: which modifier.
+    pcApps: { allow: bool(pca.allow, was), moveWindows: bool(pca.moveWindows, false), moveKey: MOVE_KEYS.includes(pca.moveKey) ? pca.moveKey : 'ControlRight' },
     // A phone as the peer: its screen window, apps and setup
     phone: {
       sound: bool(ph.sound, false),
@@ -252,4 +257,4 @@ function apply(settings, section, partial) {
   return changed;
 }
 
-module.exports = { normalize, apply };
+module.exports = { MOVE_KEYS, normalize, apply };
