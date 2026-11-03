@@ -2,7 +2,7 @@
 
 2026-11-03。上游基线为 `76b69c1d00609d5cb82e9e5cdfe2f42f8257955d`（`2.5.0-beta.1`）；个人 fork 的 `feature/shared-microphone` 分支。
 
-本分支增加了 Mac / Windows 双机共享麦克风的开发候选，设置与传输代码均开放两个方向。**尚未完成真实 Windows 音频设备、输入法和双机验收，也没有替换本机已安装的 TwinDesk 或 Deskflow Voice。**
+本分支增加了 Mac / Windows 双机共享麦克风的开发候选，设置与传输代码均开放两个方向。**尚未完成真实两端音频设备、输入法和双机验收，也没有替换本机已安装的 TwinDesk 或 Deskflow Voice。**
 
 ## 分页样式更新
 
@@ -74,7 +74,7 @@
 - `sh mac-helper/build.sh`：单机、MULTI 和配套工具构建通过；上游已有 `main.swift:202` 可选值转换警告保留。
 - 既有 `peer-kvm-auth`、`lazy-features`、`sidebar-model`、`i18n`、`i18n-integration`、`i18n-mac-shell`、`i18n-mac-features` 回归通过；变更 JS 语法及 `git diff --check` 通过。
 
-最新 UI、开关同步和双向合成测试结果见 [validation-v2.json](validation-v2.json)；较早的单向结果保留在 [validation.json](validation.json)。Windows 原生 helper 及实体按键边沿由新增的 `Microphone checks` 工作流编译/回归。隔离 QA 应用启动时仍打印 macOS sandbox extension 提示，测试退出码为 0；没有把它当成正式安装验证。
+最新 UI、开关同步和双向合成测试结果见 [validation-v2.json](validation-v2.json)；较早的单向结果保留在 [validation.json](validation.json)。Windows 原生 helper 编译及 F8 边沿逻辑自动化回归已通过 [Microphone checks](https://github.com/95409547-beep/TwinDesk/actions/runs/41641619543)（源码 `c80cc5e`，Windows/Ubuntu 检查均成功）；这不是实体按键验收。隔离 QA 应用启动时仍打印 macOS sandbox extension 提示，测试退出码为 0；没有把它当成正式安装验证。
 
 未完成：真实双向麦克风 → 虚拟音频设备 → 应用的连续语音、起音/尾音、真实跨屏 F8、输入法自动控制、听感/延迟/带宽、长时间运行、干净机器、Windows 安装包和签名验收。此分支不是可替换当前稳定链路的发行版。
 
