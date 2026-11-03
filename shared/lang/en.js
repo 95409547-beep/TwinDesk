@@ -1885,5 +1885,17 @@
   "Choose an explicit virtual cable output": "Choose an explicit virtual cable output",
   "The selected output device is unavailable": "The selected output device is unavailable",
   "Selected audio device disconnected": "Selected audio device disconnected",
+  "Use one computer’s microphone on the other.": "Use one computer’s microphone on the other.",
+  "Choose a virtual audio device": "Choose a virtual audio device",
+  "Which of {me}’s microphones to share": "Which of {me}’s microphones to share",
+  "In the app, choose the recording side of this virtual audio device.": "In the app, choose the recording side of this virtual audio device.",
+  "Use {me}’s microphone on {name}": "Use {me}’s microphone on {name}",
+  "Use {name}’s microphone on {me}": "Use {name}’s microphone on {me}",
+  "Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.": "Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.",
+  "Turn on reception and choose an audio device on the other computer": "Turn on reception and choose an audio device on the other computer",
+  "Ready — hold F8 while using the other computer": "Ready — hold F8 while using the other computer",
+  "Waiting for the other computer’s microphone": "Waiting for the other computer’s microphone",
+  "Microphone sharing": "Microphone sharing",
+  "Choose which computer uses the other’s microphone. Each direction has its own switch.": "Choose which computer uses the other’s microphone. Each direction has its own switch.",
 
 });

@@ -1,45 +1,69 @@
 // TwinDesk microphone fork. GPL-3.0, see LICENSE.
+// Use each platform's Audio-page components: header master, named routes, two direction switches.
 'use strict';
 (() => {
   const tr = (s) => window.I18n ? window.I18n.t(s) : s;
+  const configure = (settings) => UI.api.microphone({ do: 'settings', settings });
   UI.tab({
     id: 'microphone', icon: 'microphone', title: tr('Microphone'), group: 'More', order: 72,
     color: 'linear-gradient(#43b98f, #147d67)',
-    desc: tr('Use the Mac microphone on Windows while holding F8.'),
-    badge: (s) => s.microphone && (s.microphone.sending || s.microphone.receiving) ? 'on' : '',
+    desc: tr('Use one computer’s microphone on the other.'),
+    wifiOnly: true,
+    master: {
+      get: (s) => !!(s.microphone && (s.microphone.send || s.microphone.receive)),
+      set: (v) => configure({ send: v, receive: v }),
+    },
+    badge: (s) => s.microphone && (s.microphone.send || s.microphone.receive) ? 'on' : '',
     build(body) {
-      const api = UI.api;
-      const action = (m) => api.microphone(m);
-      const enabled = UI.switch((v) => action({ do: 'settings', settings: UI.state.microphone.platform === 'mac' ? { send: v } : { receive: v } }), { label: tr('Shared microphone') });
-      const source = UI.select([{ value: '', label: tr('Default microphone') }], (v) => action({ do: 'settings', settings: { input: v } }));
-      const output = UI.select([{ value: '', label: tr('Choose a virtual cable output') }], (v) => action({ do: 'settings', settings: { output: v } }));
-      const refresh = UI.button(tr('Refresh audio devices'), () => action({ do: 'devices' }));
-      const stop = UI.button(tr('Stop'), () => action({ do: 'stop' }), 'danger');
-      const toggleRow = UI.row(tr('Shared microphone'), '', [enabled]);
-      const sourceRow = UI.row(tr('Microphone source'), '', [source]);
-      const outputRow = UI.row(tr('Receive through'), tr('Choose CABLE Input here; choose CABLE Output in the Windows app.'), [output]);
-      const controls = UI.row(tr('Audio devices'), '', [refresh, stop]);
-      const status = UI.note('info', '');
-      const instructions = UI.note('info', '');
-      body.append(UI.card(tr('Shared microphone'), [toggleRow, sourceRow, outputRow, controls]), status, instructions);
+      const source = UI.select([{ value: '', label: tr('Default microphone') }], (input) => configure({ input }));
+      const output = UI.select([{ value: '', label: tr('Choose a virtual audio device') }], (output) => configure({ output }));
+      const sourceRow = UI.row(tr('Microphone source'), tr('Which of {me}’s microphones to share'), [source]);
+      const outputRow = UI.row(tr('Receive through'), tr('In the app, choose the recording side of this virtual audio device.'), [output]);
+      const sendLabel = tr('Use {me}’s microphone on {name}');
+      const receiveLabel = tr('Use {name}’s microphone on {me}');
+      let sendRow, receiveRow, updateDirections;
+      if (UI.dirCards) {
+        // Windows Audio uses dirCards: incoming first, outgoing second.
+        const pair = UI.dirCards(
+          { on: { get: (s) => !!s.microphone.receive, set: (receive) => configure({ receive }) }, label: receiveLabel, rows: [outputRow] },
+          { on: { get: (s) => !!s.microphone.send, set: (send) => configure({ send }) }, label: sendLabel, rows: [sourceRow] },
+        );
+        receiveRow = pair.a.main;
+        sendRow = pair.b.main;
+        updateDirections = pair.update;
+        body.append(pair.el);
+      } else {
+        // Mac Audio uses pair + dir and a native switch in each direction's first row.
+        const sendSwitch = UI.switch((send) => configure({ send }), { label: sendLabel });
+        const receiveSwitch = UI.switch((receive) => configure({ receive }), { label: receiveLabel });
+        sendRow = UI.row(sendLabel, '', [sendSwitch], { literalHint: true });
+        receiveRow = UI.row(receiveLabel, '', [receiveSwitch], { literalHint: true });
+        body.append(UI.pair(UI.dir('m2w', [sendRow, sourceRow]), UI.dir('w2m', [receiveRow, outputRow])));
+        updateDirections = (s) => { sendSwitch.set(s.microphone.send); receiveSwitch.set(s.microphone.receive); };
+      }
+      const refresh = UI.button(tr('Refresh audio devices'), () => UI.api.microphone({ do: 'devices' }));
+      const stop = UI.button(tr('Stop'), () => UI.api.microphone({ do: 'stop' }), 'danger');
+      body.append(UI.card(tr('Audio devices'), [UI.row(tr('Audio devices'), tr('Refreshing lists devices; it does not start recording.'), [refresh, stop])]));
+      const note = UI.note('info', tr('Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.'));
+      const error = UI.note('bad', '');
+      body.append(note, error);
       return (s) => {
         const m = s.microphone;
-        if (!m) { status.set(tr('Microphone is available in a one-to-one Mac and Windows session.')); return; }
-        const mac = m.platform === 'mac';
-        const on = mac ? m.send : m.receive;
-        enabled.set(on);
-        sourceRow.hidden = !mac;
-        outputRow.hidden = mac;
-        source.options([{ value: '', label: tr('Default microphone') }, ...m.devices.filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications').map((d, i) => ({ value: d.deviceId, label: d.label || tr('Microphone') + ' ' + (i + 1) }))]);
-        output.options([{ value: '', label: tr('Choose a virtual cable output') }, ...m.devices.filter((d) => d.kind === 'audiooutput' && d.deviceId !== 'default' && d.deviceId !== 'communications').map((d, i) => ({ value: d.deviceId, label: d.label || tr('Audio device') + ' ' + (i + 1) }))]);
+        if (!m) return;
+        updateDirections(s);
+        sendRow.querySelector('input').setAttribute('aria-label', UI.fill(sendLabel));
+        receiveRow.querySelector('input').setAttribute('aria-label', UI.fill(receiveLabel));
+        const devices = m.devices || [];
+        source.options([{ value: '', label: tr('Default microphone') }, ...devices.filter((d) => d.kind === 'audioinput' && !['default', 'communications'].includes(d.deviceId)).map((d, i) => ({ value: d.deviceId, label: d.label || tr('Microphone') + ' ' + (i + 1) }))]);
+        output.options([{ value: '', label: tr('Choose a virtual audio device') }, ...devices.filter((d) => d.kind === 'audiooutput' && !['default', 'communications'].includes(d.deviceId)).map((d, i) => ({ value: d.deviceId, label: d.label || tr('Audio device') + ' ' + (i + 1) }))]);
         source.set(m.input); output.set(m.output);
-        refresh.disabled = !on;
+        source.el.disabled = !m.send;
+        output.el.disabled = !m.receive;
+        refresh.disabled = !(m.send || m.receive);
         stop.disabled = !(m.sending || m.receiving);
-        toggleRow.setHint(mac ? tr('Send only while F8 is held on the Windows screen.') : tr('Allow the paired Mac to use the selected audio output.'));
-        controls.setHint(tr('Refreshing lists devices; it does not start recording.'));
-        const state = (m.error && tr(m.error)) || (!on ? tr('Microphone sharing is off') : !m.connected ? tr('Connect a Mac and Windows over Wi-Fi or a cable') : m.sending ? tr(m.sending === 'connected' ? 'Sending microphone audio' : 'Connecting microphone…') : m.receiving ? tr(m.receiving === 'connected' ? 'Receiving microphone audio' : 'Connecting microphone…') : mac && !m.peerReady ? tr('Enable reception and select a virtual cable on Windows') : !mac && !m.output ? tr('Choose a virtual cable output') : tr('Ready — hold F8 on the Windows screen'));
-        status.set(state);
-        instructions.set(mac ? tr('Move the pointer to Windows, then hold F8 to talk. Release F8 to stop. Some Mac keyboards require Fn+F8. Returning home, locking or disconnecting also stops the microphone.') : tr('Install a virtual audio cable separately. Select its playback endpoint here and its recording endpoint in your Windows app. This preview does not automatically start or stop an input method.'));
+        sendRow.setHint(!m.send ? '' : !m.connected ? tr('Not connected') : !m.peerReady ? tr('Turn on reception and choose an audio device on the other computer') : m.sending ? tr(m.sending === 'connected' ? 'Sending microphone audio' : 'Connecting microphone…') : tr('Ready — hold F8 while using the other computer'));
+        receiveRow.setHint(!m.receive ? '' : !m.output ? tr('Choose a virtual audio device') : !m.connected ? tr('Not connected') : m.receiving ? tr(m.receiving === 'connected' ? 'Receiving microphone audio' : 'Connecting microphone…') : tr('Waiting for the other computer’s microphone'));
+        error.set(m.error ? tr(m.error) : '');
       };
     },
   });

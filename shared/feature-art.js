@@ -149,6 +149,12 @@
         + person(122, 250, 1.3, { back: true, hair: 'hr2', shirt: 'fa-c2' });
     },
     // Someone in headphones, a level meter dancing beside them, notes floating up.
+    microphone: (id) => '<ellipse class="fa-bg" cx="200" cy="120" rx="172" ry="96"/>'
+      + device('laptop', 75, 136) + device('monitor', 325, 136)
+      + `<rect fill="url(#fa-g-${id})" x="180" y="44" width="40" height="82" rx="20"/>`
+      + '<path class="fa-band" d="M166 102v8a34 34 0 0 0 68 0v-8M200 144v28M178 172h44"/>'
+      + `<path class="fa-band thin" d="M142 74q-16 22 0 44M258 74q16 22 0 44">${fade(2, '0.3;1;0.3', '0;0.5;1')}</path>`
+      + '<path class="fa-dash" d="M117 142h39M244 142h39"/>',
     audio: (id) => {
       let bars = '';
       const H = [[20, 56, 30, 70, 20], [44, 18, 62, 26, 44], [64, 36, 20, 54, 64], [30, 70, 44, 18, 30], [52, 24, 66, 38, 52], [24, 48, 28, 60, 24]];
@@ -345,7 +351,7 @@
   };
   // Tab ids -> scene: the Mac's screen tabs and the PC apps' are called differently.
   const SCENE = {
-    cursor: 'cursor', keyboard: 'keyboard', clipboard: 'clipboard', notifications: 'notifications', audio: 'audio', apps: 'apps',
+    cursor: 'cursor', keyboard: 'keyboard', clipboard: 'clipboard', notifications: 'notifications', audio: 'audio', microphone: 'microphone', apps: 'apps',
     share: 'share', receive: 'view', 'mac-pc': 'view', 'pc-mac': 'mirror', files: 'files', terminal: 'terminal', mount: 'mount',
     calls: 'calls', messages: 'messages', media: 'media', pfiles: 'pfiles', camera: 'camera', remote: 'remote', rezume: 'rezume',
   };
@@ -356,6 +362,7 @@
     keyboard: ['Keyboard sharing', 'This keyboard types on whichever device the pointer is on, shortcuts included.'],
     clipboard: ['Clipboard sync', 'Copy something on one device and paste it on the other. It goes across by itself.'],
     notifications: ['Notification sync', 'Notifications from the other device show up on this one, and the other way round.'],
+    microphone: ['Microphone sharing', 'Choose which computer uses the other’s microphone. Each direction has its own switch.'],
     audio: ['Sound sharing', 'Play one device’s sound on the other’s speakers or headphones.'],
     apps: ['App sharing', 'Open an app of the other device: it runs there and shows up here in a window of its own.'],
     share: ['Second screen', 'This screen becomes a second screen for the other device: move windows across onto it.'],

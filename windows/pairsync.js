@@ -23,6 +23,7 @@ const FEATURES = {
   notifs: { out: ['notifs', 'send'], in: ['notifs', 'receive'] },
   apps: { out: ['pcApps', 'allow'], in: ['macApps', 'on'] },
   audio: { out: ['audio', 'send'], in: ['audio', 'receive'] },
+  microphone: { out: ['microphone', 'send'], in: ['microphone', 'receive'] },
   cursor: { out: ['kvm', 'driveOther'], in: ['kvm', 'beDriven'] },
   rezume: { out: ['rezume', 'send'], in: ['rezume', 'receive'] },
   remote: { in: ['remote', 'allow'] },

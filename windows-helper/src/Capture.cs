@@ -26,6 +26,8 @@ namespace MacShare
         public bool EdgeKeyboard = true; // an edge crossing also captures the keyboard
         public bool DragFiles = true; // file drags at the edge go to the Mac (drag.policy + the Files switches)
         public int DeadmanMs = 1500, DoubleTapMs = 400;
+        public bool MicrophoneEnabled;
+        readonly MicrophoneKey microphoneKey = new MicrophoneKey((Native.GetAsyncKeyState(0x77) & 0x8000) != 0);
         public bool Gestures = true; // Touchpad gestures go over as k.ge (Touchpad.cs)
         Touchpad pad;
         readonly HashSet<uint> padCtrl = new HashSet<uint>(); // Ctrl that Windows made from a pinch, swallowed
@@ -447,6 +449,13 @@ namespace MacShare
             // the hotkey it doesn't break the double-tap, and it never counts for a Ctrl hotkey.
             bool fakeCtrl = k.vkCode == 0xA2 && k.scanCode == 0x21D;
             bool hotkey = !fakeCtrl && DetectHotkey(k.vkCode, down);
+            if (code == "F8")
+            {
+                bool modifiers = ((Native.GetAsyncKeyState(0x10) | Native.GetAsyncKeyState(0x11) | Native.GetAsyncKeyState(0x12) | Native.GetAsyncKeyState(0x5B) | Native.GetAsyncKeyState(0x5C)) & 0x8000) != 0;
+                int edge = microphoneKey.Intercept(down, (k.flags & Native.LLKHF_INJECTED) == 0, MicrophoneEnabled, capturing && capKeys, modifiers);
+                if (edge >= 2) Program.Emit(new Dictionary<string, object> { { "event", "microphoneKey" }, { "down", edge == 2 } });
+                if (edge != 0) return (IntPtr)1;
+            }
 
             if (!down && swallowVks.Remove(k.vkCode)) return (IntPtr)1;
             // The Ctrl Windows injects for a touchpad pinch (Ctrl+wheel) stays here.

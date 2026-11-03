@@ -217,7 +217,7 @@ function pairSync(v) {
   for (const [id, feats] of Object.entries(v).slice(0, 20)) {
     if (!feats || typeof feats !== 'object') continue;
     out[id] = {};
-    for (const [f, d] of Object.entries(feats).slice(0, 10)) {
+    for (const [f, d] of Object.entries(feats).slice(0, 16)) {
       if (f === 'values') {
         out[id].values = {};
         if (d && ['fast', 'smooth'].includes(d.pace)) out[id].values.pace = d.pace;

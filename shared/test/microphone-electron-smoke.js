@@ -14,13 +14,15 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, why, timeout = 12000) { const at = Date.now(); while (!await fn()) { if (Date.now() - at > timeout) throw new Error(why); await wait(40); } }
 let sender, receiver;
+const reverse = process.env.TWINDESK_MIC_SMOKE_REVERSE === '1';
+const senderPlatform = reverse ? 'win' : 'mac';
 const wire = [];
 function make(platform) {
  const callbacks = new Map();
  const mic = new Microphone({ platform,
-  getSettings: () => ({ send: platform === 'mac', receive: platform === 'win', input: '', output: 'virtual-cable' }),
-  route: { mode: () => platform === 'mac' ? 'driving' : 'driven', generation: () => 7, incoming: () => 7 },
-  link: { connected: () => true, os: () => platform === 'mac' ? 'win' : 'mac', transport: () => 'ip', onConnect() {}, onDisconnect() {}, on: (t, fn) => callbacks.set(t, fn), send: (m) => { wire.push(m); setImmediate(() => { const peer = platform === 'mac' ? receiver : sender; if (peer) peer.message(m); }); } },
+  getSettings: () => ({ send: platform === senderPlatform, receive: platform !== senderPlatform, input: '', output: 'virtual-cable' }),
+  route: { mode: () => platform === senderPlatform ? 'driving' : 'driven', generation: () => 7, incoming: () => 7 },
+  link: { connected: () => true, os: () => platform === 'mac' ? 'win' : 'mac', transport: () => 'ip', onConnect() {}, onDisconnect() {}, on: (t, fn) => callbacks.set(t, fn), send: (m) => { wire.push(m); setImmediate(() => { const peer = platform === senderPlatform ? receiver : sender; if (peer) peer.message(m); }); } },
   createWindow: (options) => new BrowserWindow({ ...options, webPreferences: { ...options.webPreferences, partition: platform + '-synthetic-smoke' } }),
  });
  return mic;
@@ -28,7 +30,7 @@ function make(platform) {
 ipcMain.on('microphone:media', (e, m) => { if (sender) sender.fromWindow(e, m); if (receiver) receiver.fromWindow(e, m); });
 app.whenReady().then(async () => {
  try {
-  sender = make('mac'); receiver = make('win');
+  sender = make(senderPlatform); receiver = make(reverse ? 'mac' : 'win');
   sender.command({ action: 'devices' }); receiver.command({ action: 'devices' });
   await until(() => sender.windowReady && receiver.windowReady, 'media preload failed');
   await receiver.win.webContents.executeJavaScript(`
@@ -58,7 +60,7 @@ app.whenReady().then(async () => {
     await until(async () => await sender.win.webContents.executeJavaScript('active === null') && await receiver.win.webContents.executeJavaScript('active === null'), 'release left renderer media running');
     receiver.message(wire.find((m) => m.t === 'mic.offer'));
     assert.equal(receiver.rx, null, 'late offer restarted receiver');
-    const result = { ok: true, electron: process.versions.electron, syntheticAudio: true, realMicrophoneOpened: false, virtualCableStubbed: true, receivedRtpBytes: received, decodedAudioEnergy: energy, opus: true, bothStoppedOnRelease: true, lateOfferRejected: true };
+    const result = { ok: true, direction: reverse ? 'win-to-mac' : 'mac-to-win', electron: process.versions.electron, syntheticAudio: true, realMicrophoneOpened: false, virtualCableStubbed: true, receivedRtpBytes: received, decodedAudioEnergy: energy, opus: true, bothStoppedOnRelease: true, lateOfferRejected: true };
     console.log(JSON.stringify(result));
     if (process.env.TWINDESK_MIC_SMOKE_RESULT) fs.writeFileSync(process.env.TWINDESK_MIC_SMOKE_RESULT, JSON.stringify(result, null, 2));
   } finally { clearInterval(timer); }

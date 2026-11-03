@@ -265,7 +265,7 @@ function start() {
   kvm = new Kvm({ link, helper, clip, fileDrop, fileRecv, dragRecv, settings, save: saveSettings, onChange: onKvmChange });
   require('../shared/applog.js').linkStats(() => kvm.linkSample()); // the link's line in the log every 30 s
   microphone = require('../shared/microphone-runtime').attach({
-    platform: 'win', settings, save: saveSettings, changed: pushState,
+    platform: 'win', helper, settings, save: saveSettings, changed: pushState,
     route: { mode: () => kvm.mode, generation: () => kvm.route, incoming: () => kvm.peerRoute },
     link: {
       connected: () => link.authed && link.status.state === 'connected', os: () => link.peerOs,

@@ -82,4 +82,11 @@ assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600
  r.remote('mic.offer', { route: 7, sdp: 'offer' }); assert.equal(r.mic.rx, null, 'locked receiver cannot accept a fresh round');
  r.mic.blocked = false; r.mic.policy(); assert.equal(r.wire.at(-1).accept, true);
 }
+for (const platform of ['mac', 'win']) {
+ const send = rig(platform); send.cfg.send = true; send.mode('driving'); send.policy(); send.mic.key(true);
+ assert(send.mic.tx, platform + ' may share its own microphone'); send.mic.key(false);
+ const receive = rig(platform); receive.cfg.receive = true; receive.mode('driven'); receive.policy();
+ receive.remote('mic.offer', { route: 7, sdp: 'offer' }); assert(receive.mic.rx, platform + ' may use the other computer microphone');
+ receive.remote('mic.stop'); assert.equal(receive.mic.rx, null);
+}
 console.log('microphone: settings, fresh key edges, lazy startup cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');

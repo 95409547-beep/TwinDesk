@@ -286,6 +286,7 @@ function setupIpc(ctx) {
     monitor: () => screen.applyAudio(), // pacing (pair.sync 'pace')
     notifs: () => notifs.applySettings(),
     audio: () => sound.apply(),
+    microphone: () => ctx.microphone && ctx.microphone.applySettings(),
     kvm: () => kvm.applyConfig(),
     pcApps: () => { pcApps.apply(); pcApps.input.release(); },
     rezume: () => (ctx.rezume ? ctx.rezume.apply() : ctx.loadReZume()),

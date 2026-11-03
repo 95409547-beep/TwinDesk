@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-03",
+  "ui": "both actual platform UI kits: microphone SVG, header master and normal off introduction, two named device routes and independent direction switches passed",
+  "pairSync": "original pair.sync out/in mapping and persistence regression passed",
+  "transport": [
+    {
+      "ok": true,
+      "direction": "mac-to-win",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 10991,
+      "decodedAudioEnergy": 0.6004680267461888,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true
+    },
+    {
+      "ok": true,
+      "direction": "win-to-mac",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 10986,
+      "decodedAudioEnergy": 0.5407849100409821,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true
+    }
+  ],
+  "physicalDevicesVerified": false,
+  "inputMethodAutomationIntegrated": false,
+  "windowsNative": "CI pending"
+}

@@ -1,5 +1,5 @@
 // TwinDesk microphone fork. GPL-3.0, see LICENSE.
-// Mac -> Windows, one-to-one. Media only exists during a fresh physical F8 hold.
+// Paired Mac/Windows computers, either direction, one-to-one. Media only exists during a fresh physical F8 hold.
 'use strict';
 const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
@@ -29,9 +29,9 @@ class Microphone extends EventEmitter {
     for (const type of TYPES) link.on(type, (m) => this.message(m));
   }
   get cfg() { return normalize(this.getSettings()); }
-  get paired() { return this.link.connected() && this.link.os() === (this.platform === 'mac' ? 'win' : 'mac') && this.link.transport() !== 'ble'; }
+  get paired() { return this.link.connected() && ['mac', 'win'].includes(this.link.os()) && this.link.transport() !== 'ble'; }
   get connected() { return this.paired && !this.blocked; }
-  get accepting() { return this.platform === 'win' && this.connected && this.cfg.receive && !!this.cfg.output; }
+  get accepting() { return this.connected && this.cfg.receive && !!this.cfg.output; }
   send(m) { if (this.connected) this.link.send(m); }
   policy() {
     this.lastPolicy = this.now();
@@ -60,8 +60,8 @@ class Microphone extends EventEmitter {
     if (!down) { this.held = false; this.stop('Released'); return; }
     if (this.held) return;
     this.held = true;
-    if (this.platform !== 'mac' || !this.cfg.send) return;
-    if (!this.connected || !this.peer || !this.peer.accept) return this.fail('Enable microphone reception and choose a virtual cable on Windows');
+    if (!this.cfg.send) return;
+    if (!this.connected || !this.peer || !this.peer.accept) return this.fail('Turn on reception and choose an audio device on the other computer');
     if (this.route.mode() !== 'driving' || !this.route.generation()) return;
     this.error = '';
     const s = this.tx = { id: randomUUID(), route: this.route.generation(), at: this.now(), status: 'starting' };

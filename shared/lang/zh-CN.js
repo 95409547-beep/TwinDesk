@@ -1885,5 +1885,17 @@
   "Choose an explicit virtual cable output": "请明确选择虚拟音频线的播放端",
   "The selected output device is unavailable": "所选接收音频设备不可用",
   "Selected audio device disconnected": "所选音频设备已断开",
+  "Use one computer’s microphone on the other.": "在电脑之间共用麦克风。",
+  "Choose a virtual audio device": "请选择虚拟音频设备",
+  "Which of {me}’s microphones to share": "选择 {me} 要共享的麦克风",
+  "In the app, choose the recording side of this virtual audio device.": "在应用中选择此虚拟音频设备的录音端。",
+  "Use {me}’s microphone on {name}": "在 {name} 上使用 {me} 的麦克风",
+  "Use {name}’s microphone on {me}": "在 {me} 上使用 {name} 的麦克风",
+  "Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.": "将光标移到对方电脑后，按住 F8 使用本机麦克风，松开停止。",
+  "Turn on reception and choose an audio device on the other computer": "请在对方电脑开启接收，并选择音频设备",
+  "Ready — hold F8 while using the other computer": "已就绪 — 使用对方电脑时按住 F8 说话",
+  "Waiting for the other computer’s microphone": "等待对方电脑的麦克风",
+  "Microphone sharing": "麦克风共享",
+  "Choose which computer uses the other’s microphone. Each direction has its own switch.": "设置哪台电脑使用对方的麦克风，每个方向都有独立开关。",
 
 });

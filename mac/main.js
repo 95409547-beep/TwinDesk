@@ -788,6 +788,7 @@ app.whenReady().then(() => {
     clipboard: (dir, on) => actions.setClipboard({ [dir === 'out' ? 'send' : 'receive']: on }),
     notifs: (dir, on) => actions.setNotifs({ [dir === 'out' ? 'send' : 'receive']: on }),
     apps: (dir, on) => (dir === 'out' ? actions.setApps({ offer: on }) : actions.setPcApps({ on })),
+    microphone: (dir, on) => actions.microphone({ do: 'settings', settings: { [dir === 'out' ? 'send' : 'receive']: on } }),
     audio: (dir, on) => actions.setAudio({ [dir === 'out' ? 'send' : 'receive']: on }),
     cursor: (dir, on) => actions.setKvm({ [dir === 'out' ? 'driveOther' : 'beDriven']: on }),
     rezume: (dir, on) => actions.setRezume({ [dir === 'out' ? 'send' : 'receive']: on }),

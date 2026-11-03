@@ -202,6 +202,9 @@ namespace MacShare
                 switch (cmd)
                 {
                     case "ping": case "keepalive": break;
+                    case "microphoneConfig":
+                        capture.MicrophoneEnabled = Json.Bool(c, "on", false);
+                        break;
                     case "kvmConfig":
 #if MULTI
                         // sides: every side that leads to a connected device (CaptureMulti.cs); without it, the one side.
