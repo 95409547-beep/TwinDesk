@@ -112,6 +112,7 @@ function setupIpc(ctx) {
   handle('setChats', (on) => { change('ui', { chats: on === true }); if (ctx.chats && ctx.chats()) ctx.chats().sync(); }); // Messages: WhatsApp, Telegram and Instagram there too
   handle('setOverview', (o) => o && typeof o === 'object' && change('ui', { overview: { ...settings.ui.overview, ...o } })); // General › Overview // invalid names fall back in normalize()
   handle('setMulti', (on) => require('./multi').set(on === true)); // Multi-device: TwinDesk restarts
+  handle('microphone', (m) => ctx.microphone && ctx.microphone.action(m));
   handle('setAudio', (partial) => change('audio', partial, () => {
     sound.apply();
     // Loaded when first turned on (applied then); off, the loaded one stops.

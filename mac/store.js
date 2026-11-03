@@ -89,6 +89,7 @@ const DEFAULT_SETTINGS = {
   ui: { tab: 'overview', setupSkipped: '', setupDone: false, language: '' },
   app: { openAtLogin: false, keepAwake: true, hud: true }, // hud = popup when switching computers
   updates: { auto: true, notified: '', skipped: '' }, // check GitHub for new releases; notified = last version announced, skipped = version ignored
+  microphone: require('../shared/microphone-settings').DEFAULTS,
   audio: { send: false, receive: false, muteLocal: false, volume: 1, phoneMedia: false }, // Independent, both ways; phoneMedia: a phone's media controls on Overview
   rezume: require('../shared/rezume.js').DEFAULTS, // ReZume tab (shared/rezume.js): off until turned on; what goes, which ways, where it shows
   remote: { allow: false }, // Remote tab (shared/phone-remote.js): the phone's Remote page moves the pointer and types here
@@ -121,6 +122,7 @@ function loadSettings() {
   if (s.sharing) s.sharing.on = false; // screen sharing never starts by itself
   const out = { ...DEFAULT_SETTINGS, ...s };
   for (const k of ['wake', 'sharing', 'virtual', 'kvm', 'keys', 'clipboard', 'ui', 'app', 'audio', 'terminal', 'files', 'smb', 'apps', 'receive', 'papps', 'notifs', 'updates', 'phone', 'mount', 'hub', 'camera', 'remote']) out[k] = { ...DEFAULT_SETTINGS[k], ...(s[k] || {}) };
+  out.microphone = require('../shared/microphone-settings').normalize(s.microphone);
   out.rezume = require('../shared/rezume.js').normalize(s.rezume);
   out.ui.language = require('../shared/i18n.js').savedLanguage(out.ui.language);
   if (Object.keys(s).length) {

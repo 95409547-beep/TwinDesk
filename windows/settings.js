@@ -6,7 +6,7 @@ const CL = require('../shared/cursorlock.js');
 const { savedLanguage } = require('../shared/i18n.js');
 const { normalizeFolder } = require('../shared/received.js');
 
-const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
+const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'microphone', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
 
 const OLD_TABS = { display: 'mac-pc', receive: 'mac-pc', share: 'pc-mac' }; // older names
 
@@ -116,6 +116,7 @@ function normalize(s) {
       rotate: [0, 90, 180, 270].includes((s.camera || {}).rotate) ? s.camera.rotate : 0,
       device: typeof (s.camera || {}).device === 'string' ? s.camera.device.slice(0, 200) : '',
     },
+    microphone: require('../shared/microphone-settings').normalize(s.microphone),
     audio: {
       receive: bool(audio.receive, was), // play the Mac's sound here (audio.policy W→M)
       volume: Math.round(num(audio.volume, 1, 0, 1) * 100) / 100,

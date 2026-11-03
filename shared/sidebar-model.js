@@ -9,7 +9,7 @@
   // Sections that only make sense for one kind of device. Ids of all three apps (the Mac calls
   // Receive screen 'receive' and Share screen 'share', the PC and Linux 'mac-pc' and 'pc-mac').
   const PHONE_ONLY = ['calls', 'messages', 'media', 'pfiles', 'mount', 'phone', 'remote', 'mirror', 'papps'];
-  const COMPUTER_ONLY = ['mac-pc', 'receive', 'apps', 'terminal'];
+  const COMPUTER_ONLY = ['mac-pc', 'receive', 'apps', 'terminal', 'microphone'];
   // Global sections: the same whichever device is selected.
   // Overview is the selected device's own page (shared/ui-device.js); Connection is everyone's.
   const GLOBAL = ['connection', 'general', 'about', 'clipboard', 'notifications', 'setup'];

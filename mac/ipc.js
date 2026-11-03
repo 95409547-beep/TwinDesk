@@ -19,7 +19,7 @@ const SETTINGS_URLS = {
   location: 'x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices',
   extensions: 'x-apple.systempreferences:com.apple.ExtensionsPreferences?Sharing',
 };
-const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'share', 'receive', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
+const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'share', 'receive', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'microphone', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
 
 const bool = (v) => !!v;
 const clamp = (lo, hi, dflt) => (v) => {
@@ -465,6 +465,7 @@ function setupIpc(ctx) {
       ctx.net.drop();
       if (settings.sharing.on) actions.setSharing(false);
     },
+    microphone(m) { if (ctx.microphone) ctx.microphone.action(m); },
     setAudio(partial) {
       setGroup('audio', partial);
       ctx.audio.applySettings();

@@ -64,6 +64,9 @@ func handle(_ line: String) {
   Capture.shared.touch() // every command is a keepalive for the capture dead-man
   let num = { (k: String, d: Double) in (msg[k] as? NSNumber)?.doubleValue ?? d }
   switch cmd {
+  case "microphoneConfig":
+    Capture.shared.microphoneEnabled = (msg["on"] as? Bool) == true
+    reply(id)
   case "kvmConfig":
     Capture.shared.edgeZones = zones(msg["zones"])
     guard Capture.shared.startTap() else { return replyError(id, "event tap failed (Accessibility / Input Monitoring)") }

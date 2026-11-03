@@ -141,6 +141,7 @@ let fileDrop = null;
 let smb = null;
 let apps = null;
 let sound = null;
+let microphone = null;
 let pcScreen = null;
 let pcApps = null;
 let peerApps = null; // The other PC's apps here
@@ -263,6 +264,15 @@ function start() {
   const dragRecv = new DragRecv({ link, helper, settings, isDriven: () => kvm && kvm.mode === 'driven', onChange: pushState });
   kvm = new Kvm({ link, helper, clip, fileDrop, fileRecv, dragRecv, settings, save: saveSettings, onChange: onKvmChange });
   require('../shared/applog.js').linkStats(() => kvm.linkSample()); // the link's line in the log every 30 s
+  microphone = require('../shared/microphone-runtime').attach({
+    platform: 'win', settings, save: saveSettings, changed: pushState,
+    route: { mode: () => kvm.mode, generation: () => kvm.route, incoming: () => kvm.peerRoute },
+    link: {
+      connected: () => link.authed && link.status.state === 'connected', os: () => link.peerOs,
+      transport: () => link.transport, onConnect: (fn) => link.on('welcome', fn), onDisconnect: (fn) => link.on('closed', fn),
+      on: (t, fn) => link.on(t, fn), send: (m) => link.send(m),
+    },
+  });
   hud = new Hud(() => settings);
   // Cursor sharing switched on/off (hotkey double-tap, tray, or the other computer): the big card.
   // ble: Over Bluetooth was switched (kvm.setShared through Bluetooth).
@@ -276,6 +286,7 @@ function start() {
     hud.show(on ? 'linkOn' : 'linkOff', { key: on ? 'Cursor sharing on' : ble ? 'Cursor sharing off over Bluetooth' : 'Cursor sharing off' }, sub);
   };
   kvm.onWhere = (mode) => { // the switching popup
+    if (microphone) microphone.routeChanged();
     const name = peerName();
     if (mode === 'driving') hud.show('away', { key: kvm.keyboardOnly ? 'Typing on {name}' : 'Using {name}', vars: { name } });
     else if (mode === 'driven') hud.show('driven', { key: '{name} is using {me}', vars: { name, me: device.name } });
@@ -375,7 +386,7 @@ function start() {
     },
   });
   updates.start();
-  const ipc = setupIpc({ devctl: () => devctl, chats: () => chats, explorer: () => explorer, qrPair: qrPairView, adbQr: adbQrDo, link, discovery, screen, clip, kvm, sshd, fileDrop, smb, apps, sound, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, updates, settings, save: saveSettings, push: pushState, buildState,
+  const ipc = setupIpc({ devctl: () => devctl, chats: () => chats, explorer: () => explorer, qrPair: qrPairView, adbQr: adbQrDo, link, discovery, screen, clip, kvm, sshd, fileDrop, smb, apps, sound, microphone, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, updates, settings, save: saveSettings, push: pushState, buildState,
     get rezume() { return rezume; }, loadReZume,
     get phone() { return phone; }, get phoneViews() { return phoneViews; }, get camShare() { return camShare; }, get vcam() { return vcam; }, get phoneRemote() { return phoneRemote; }, get nowPlaying() { return nowPlaying; }, get btAudio() { return btAudio; }, get phoneDrive() { return phoneDrive; }, get terminal() { return terminal; }, loadRemote, setCamera, loadNowPlaying, loadBtAudio, loadTerminal, connectPhoneDev, cancelPhoneInvite, hub: loadHub,
     get net() { return net; }, applyNet, joinHotspot,
@@ -1033,6 +1044,7 @@ function buildState() {
     updates: updates ? updates.view : null,
     firewall: fw,
     audio: { ...settings.audio, ...sound.view() },
+    microphone: microphone ? microphone.view : null,
     pcScreen: pcScreen.view(),
     pcApps: pcApps.view(),
     macApps: settings.macApps,
@@ -1332,6 +1344,7 @@ function updateTray(s = buildState()) {
 }
 
 app.on('before-quit', () => {
+  if (microphone) microphone.shutdown();
   quitting = true;
   saveBounds();
   if (discovery) discovery.stop();

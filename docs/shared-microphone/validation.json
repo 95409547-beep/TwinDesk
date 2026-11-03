@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "electron": "44.7.0",
+  "syntheticAudio": true,
+  "realMicrophoneOpened": false,
+  "virtualCableStubbed": true,
+  "receivedRtpBytes": 11216,
+  "decodedAudioEnergy": 0.7296582820410971,
+  "opus": true,
+  "bothStoppedOnRelease": true,
+  "lateOfferRejected": true,
+  "date": "2026-11-03",
+  "scope": "same-Mac synthetic WebRTC test; Windows virtual cable was stubbed; no physical microphone or input method acceptance",
+  "nativeHelperBuild": "both one-to-one and MULTI plus companion tools passed; existing main.swift optional-coercion warning remains",
+  "ui": "actual Mac and Windows UI kits, Chinese labels and actions tested on macOS Electron; synthetic device names",
+  "controllerTests": "passed",
+  "rendererTests": "passed",
+  "upstreamBase": "76b69c1d00609d5cb82e9e5cdfe2f42f8257955d"
+}

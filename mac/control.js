@@ -16,6 +16,7 @@ const ICONS = {
   files: 'M3 5h5l1.5 2H17v9H3z',
   mount: 'M3 12h14v4H3z M14 14h.5 M10 3v6 M7 6l3 3 3-3',
   terminal: 'M3 4h14v12H3z M6 8l2.5 2L6 12 M10 12h4',
+  microphone: 'M7 4a3 3 0 0 1 6 0v5a3 3 0 0 1-6 0z M4 8v1a6 6 0 0 0 12 0V8 M10 15v4 M7 19h6',
   audio: 'M4 8h3l4-3v10l-4-3H4z M14 7.5c1 .8 1 4.2 0 5 M16 5.5c2.2 1.8 2.2 7.2 0 9',
   apps: 'M4 4h5v5H4z M11 4h5v5h-5z M4 11h5v5H4z M11 11h5v5h-5z',
   general: 'M10 7a3 3 0 1 0 0 6 3 3 0 0 0 0-6z M10 2.5v2 M10 15.5v2 M2.5 10h2 M15.5 10h2 M4.7 4.7l1.4 1.4 M13.9 13.9l1.4 1.4 M4.7 15.3l1.4-1.4 M13.9 6.1l1.4-1.4',
