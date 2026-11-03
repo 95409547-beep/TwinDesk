@@ -43,5 +43,11 @@ async function rig(hello = {}) {
  {
  const r=await rig({fixture:true});assert(!r.adapter.ready,'production adapter rejects the fake native backend');assert(r.child.stdin.writableEnded);await r.adapter.close();
  }
+ {
+ const r=await rig();const begin=r.adapter.begin(id,7);r.send({type:'started',session:id});await begin;
+ r.send({type:'error',session:id,ready:true,error:'invalid_pcm_length'});
+ assert(!r.adapter.ready,'a protocol error after Start is not confirmed native End');assert(r.child.stdin.writableEnded,'EOF asks the child to cancel its owned capture');
+ await assert.rejects(r.adapter.end(id,false),/not confirmed/);await r.adapter.close();
+ }
  console.log('input-method-adapter: private child framing, native start/end confirmation, early cancel, late start, bounded PCM, busy and epoch guards passed');
 })().catch(e=>{console.error(e);process.exitCode=1;});

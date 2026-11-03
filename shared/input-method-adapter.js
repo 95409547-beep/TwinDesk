@@ -82,6 +82,9 @@ class InputMethodAdapter extends EventEmitter {
     const s = this.active;
     if (m.type === 'error') {
       if (s && m.session && m.session !== s.id && m.ready === true) return;
+      // A protocol rejection after Start is not an End acknowledgement. Close the owned
+      // pipe and keep reception blocked until a fresh preflight confirms idle.
+      if (m.ready !== true || (s && (s.started || s.ending))) return this.fail('Input method rejected this voice session');
       this.health = m.ready === true;
       if (s && m.session === s.id) this.rejectActive('Input method rejected this voice session');
       this.error = 'Input method rejected this voice session'; this.status = this.health ? 'ready' : 'failed'; this.changed(); return;
