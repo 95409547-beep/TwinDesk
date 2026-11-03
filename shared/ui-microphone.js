@@ -82,7 +82,7 @@
         output.el.disabled = !m.receive;
         refresh.disabled = !(m.send || m.receive);
         stop.disabled = !(m.sending || m.receiving);
-        sendRow.setHint(!m.send ? '' : !m.connected ? tr('Not connected') : !m.peerReady ? tr('Turn on reception and choose an audio device on the other computer') : m.sending ? tr(m.sending === 'connected' ? 'Sending microphone audio' : 'Connecting microphone…') : tr('Ready — hold F8 while using the other computer'));
+        sendRow.setHint(!m.send ? '' : !m.connected ? tr('Not connected') : m.sending === 'ending' ? tr('Finishing voice input…') : !m.peerReady ? tr('Turn on reception and choose an audio device on the other computer') : m.sending ? tr(m.sending === 'connected' ? 'Sending microphone audio' : 'Connecting microphone…') : tr('Ready — hold F8 while using the other computer'));
         receiveRow.setHint(!m.receive ? '' : dictation ? tr(inputStatus[inputMethod.status] || inputStatus.failed) : !m.output ? tr('Choose a virtual audio device') : !m.connected ? tr('Not connected') : m.receiving ? tr(m.receiving === 'ending' ? 'Finishing voice input…' : m.receiving === 'connected' ? 'Receiving microphone audio' : 'Connecting microphone…') : tr('Waiting for the other computer’s microphone'));
         error.set(m.error ? tr(m.error) : dictation && inputMethod.error ? tr(inputMethod.error) : '');
       };

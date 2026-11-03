@@ -124,6 +124,13 @@ for (const platform of ['mac', 'win']) {
  r.cfg.mode='microphone';r.mic.changedSettings();
  assert(!r.mic.accepting,'switching purpose cannot bypass an unconfirmed native stop');
 }
+{
+ const r=rig();r.policy();r.mic.key(true);r.ready();const id=r.mic.tx.id;
+ r.windowMessage({id,t:'mic.offer',sdp:'offer'});r.mic.key(false);
+ assert(r.mic.awaitingEnd);assert.equal(r.mic.view.sending,'ending');
+ r.mic.key(true);assert.equal(r.mic.tx,null,'a fresh press must wait for the receiver to confirm End');
+ r.remote('mic.ended',{id,ready:false});assert.equal(r.mic.awaitingEnd,null);assert.match(r.mic.error,/not confirmed/);assert(!r.mic.peer.accept);
+}
 console.log('microphone: settings, fresh key edges, native start/end confirmation, cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');
 
 })().catch(error=>{console.error(error);process.exitCode=1;});

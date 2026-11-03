@@ -81,7 +81,7 @@ app.whenReady().then(async () => {
     const codecs = await sender.win.webContents.executeJavaScript(`(async()=>Array.from((await active.pc.getStats()).values()).filter(x=>x.type==='codec').map(x=>x.mimeType))()`);
     assert(codecs.some((c) => /opus/i.test(c)), 'Opus must be available on the negotiated audio session');
     sender.key(false);
-    await until(() => !sender.tx && !receiver.rx, 'release did not end both controllers');
+    await until(() => !sender.tx && !sender.awaitingEnd && !receiver.rx, 'release did not confirm the end on both controllers');
     await until(async () => await sender.win.webContents.executeJavaScript('active === null') && await receiver.win.webContents.executeJavaScript('active === null'), 'release left renderer media running');
     receiver.message(wire.find((m) => m.t === 'mic.offer'));
     assert.equal(receiver.rx, null, 'late offer restarted receiver');
