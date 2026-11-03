@@ -57,8 +57,8 @@
 
 - `node shared/test/microphone.js`：设置、按键边沿、提前松开、延迟窗口就绪、路由/epoch、重连、超时、策略撤销、旧 offer 拒绝和输出设备门槛。
 - `node shared/test/microphone-renderer.js`：延迟授权取消、track 释放、SDP 先于 ICE、输出设备失败且不落回扬声器。
-- `node shared/test/microphone-electron-smoke.js`（使用 Electron 运行）：真实 WebRTC/Opus、合成声源、RTP 接收与非零解码能量、松开后两端媒体停止、旧 offer 不重启。Windows sink 在测试中模拟，未打开真实麦克风。
-- `node shared/test/microphone-ui-smoke.js`（使用 Electron 运行）：真实 Mac/Windows UI kit 中的新增组件、中英文资源、设备选择和设置/刷新操作；状态与设备名为模拟数据，Windows 界面在 macOS Electron 中渲染。
+- `mac/node_modules/.bin/electron shared/test/microphone-electron-smoke.js`（已安装 Mac 开发依赖时）：真实 WebRTC/Opus、合成声源、RTP 接收与非零解码能量、松开后两端媒体停止、旧 offer 不重启。Windows sink 在测试中模拟，未打开真实麦克风。
+- `mac/node_modules/.bin/electron shared/test/microphone-ui-smoke.js`（已安装 Mac 开发依赖时）：真实 Mac/Windows UI kit 中的新增组件、中英文资源、设备选择和设置/刷新操作；状态与设备名为模拟数据，Windows 界面在 macOS Electron 中渲染。
 - `sh mac-helper/build.sh`：单机、MULTI 和配套工具构建通过；上游已有 `main.swift:202` 可选值转换警告保留。
 - 既有 `peer-kvm-auth`、`lazy-features`、`sidebar-model`、`i18n`、`i18n-integration`、`i18n-mac-shell`、`i18n-mac-features` 回归通过；变更 JS 语法及 `git diff --check` 通过。
 
