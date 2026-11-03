@@ -1,9 +1,10 @@
 // TwinDesk microphone fork. GPL-3.0, see LICENSE.
 'use strict';
-const DEFAULTS = Object.freeze({ send: false, receive: false, input: '', output: '' });
+const DEFAULTS = Object.freeze({ send: false, receive: false, input: '', output: '', mode: 'microphone', component: '', profile: '' });
 function normalize(value) {
   const v = value && typeof value === 'object' ? value : {};
   const device = (id) => typeof id === 'string' && id.length <= 512 ? id : '';
-  return { send: v.send === true, receive: v.receive === true, input: device(v.input), output: ['default', 'communications'].includes(v.output) ? '' : device(v.output) };
+  const file = (value) => typeof value === 'string' && value.length <= 4096 && !value.includes('\0') ? value : '';
+  return { mode: v.mode === 'dictation' ? 'dictation' : 'microphone', component: file(v.component), profile: file(v.profile), send: v.send === true, receive: v.receive === true, input: device(v.input), output: ['default', 'communications'].includes(v.output) ? '' : device(v.output) };
 }
 module.exports = { DEFAULTS, normalize };

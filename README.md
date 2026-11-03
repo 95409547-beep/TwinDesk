@@ -1,4 +1,4 @@
-> **共享麦克风开发分支**：双向分页与开关同步候选、方案对比与验证边界见 [研究与使用说明](docs/shared-microphone/README.md)。真实双机尚未验收，输入法自动控制尚未接入。
+> **共享麦克风开发分支**：双向分页与开关同步候选、方案对比与验证边界见 [研究与使用说明](docs/shared-microphone/README.md)。通用应用与 Windows 输入法两种用途已加入代码候选，真实双机尚未验收。
 
 <p align="center">
   <img src=".github/assets/icon.png" width="112" alt="TwinDesk icon">

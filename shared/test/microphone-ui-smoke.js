@@ -29,7 +29,7 @@ app.whenReady().then(async () => {
   for (const platform of ['mac', 'win']) {
     state = {
       macName: 'QA Mac', device: { name: 'QA Windows' }, client: { name: 'QA Windows', os: 'win' }, peer: { name: 'QA Mac', os: 'mac' },
-      microphone: { platform, send: true, receive: true, input: 'qa-mic', output: 'qa-cable', connected: true, peerReady: true, sending: null, receiving: null, error: '', devices: [
+      microphone: { platform, mode:'microphone', component:'', profile:'', send: true, receive: true, input: 'qa-mic', output: 'qa-cable', connected: true, peerReady: true, sending: null, receiving: null, error: '', devices: [
         { kind: 'audioinput', deviceId: 'qa-mic', label: 'QA USB Microphone' }, { kind: 'audiooutput', deviceId: 'qa-cable', label: 'QA Virtual Audio' },
       ] },
     };
@@ -68,9 +68,19 @@ app.whenReady().then(async () => {
     await w.webContents.executeJavaScript(`document.querySelector('.dir-card input').click();void 0;`);await pause(100);
     assert.equal(platform==='mac'?state.microphone.send:state.microphone.receive,false);
     assert.equal(platform==='mac'?state.microphone.receive:state.microphone.send,true,'one direction does not change the other');
-    await w.webContents.executeJavaScript(`document.querySelector('.dir-card input').click();document.querySelector('.page-body button.btn').click();void 0;`);await pause(600);
+    await w.webContents.executeJavaScript(`document.querySelector('.dir-card input').click();Array.from(document.querySelectorAll('button')).find(e=>e.innerText==='刷新音频设备').click();void 0;`);await pause(600);
     assert(actions.some(m=>m.do==='devices'));
     fs.writeFileSync(path.join(resultDir,'microphone-'+platform+'.png'),(await w.webContents.capturePage()).toPNG());
+    if(platform==='win') {
+      await w.webContents.executeJavaScript(`const select=document.querySelector('select[aria-label="使用方式"]');select.value='dictation';select.dispatchEvent(new Event('change'));void 0;`);await pause(100);
+      assert.equal(state.microphone.mode,'dictation');
+      const visible=await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.row')).filter(e=>!e.hidden).map(e=>e.innerText).join('\\n')`);
+      assert(visible.includes('输入法支持组件')&&visible.includes('输入法配置'),'input controls use the incoming direction card');
+      await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(e=>e.innerText==='重新检查').click();void 0;`);await pause(50);
+      assert(actions.some(m=>m.do==='retryInputMethod'));
+      state.microphone.component='C:\\QA\\deskflow-windows-voice.exe';state.microphone.profile='C:\\QA\\input-method.json';state.microphone.inputMethod={ready:true,status:'ready',error:''};w.webContents.send('state',state);await pause(100);
+      fs.writeFileSync(path.join(resultDir,'microphone-win-dictation.png'),(await w.webContents.capturePage()).toPNG());
+    }
     w.destroy();
   }
   console.log('microphone-ui: icon, native master/intro, two named routes, independent directions, source/receive devices and refresh passed on both UI kits');app.quit();

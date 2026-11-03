@@ -6,6 +6,7 @@ const P = require('../shared/protocol.js');
 const { receivedDir } = require('../shared/received.js');
 const { LINKS } = require('../shared/about.js');
 const { apply } = require('./settings');
+const I18n = require('../shared/i18n');
 
 // ctx: link, discovery, screen, clip, kvm, terminal, fileDrop, smb, apps, phone, phoneViews, connectPhoneDev(d), settings, save(), push(), buildState(),
 //      checkFirewall(), fixFirewall(), setStartup(on)
@@ -112,7 +113,17 @@ function setupIpc(ctx) {
   handle('setChats', (on) => { change('ui', { chats: on === true }); if (ctx.chats && ctx.chats()) ctx.chats().sync(); }); // Messages: WhatsApp, Telegram and Instagram there too
   handle('setOverview', (o) => o && typeof o === 'object' && change('ui', { overview: { ...settings.ui.overview, ...o } })); // General › Overview // invalid names fall back in normalize()
   handle('setMulti', (on) => require('./multi').set(on === true)); // Multi-device: TwinDesk restarts
-  handle('microphone', (m) => ctx.microphone && ctx.microphone.action(m));
+  handle('microphone', async (m) => {
+    if (!ctx.microphone || !m || typeof m !== 'object') return;
+    if (m.do === 'chooseComponent' || m.do === 'chooseInputProfile') {
+      const component = m.do === 'chooseComponent';
+      const result = await dialog.showOpenDialog({
+        title: I18n.create(I18n.resolveLanguage(settings.ui.language, app.getLocale())).t(component ? 'Input method support component' : 'Input method configuration'),
+        properties: ['openFile'], filters: [{ name: component ? 'Windows executable' : 'JSON configuration', extensions: [component ? 'exe' : 'json'] }],
+      });
+      if (!result.canceled && result.filePaths[0]) ctx.microphone.action({ do: 'settings', settings: { [component ? 'component' : 'profile']: result.filePaths[0] } });
+    } else ctx.microphone.action(m);
+  });
   handle('setAudio', (partial) => change('audio', partial, () => {
     sound.apply();
     // Loaded when first turned on (applied then); off, the loaded one stops.

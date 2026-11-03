@@ -5,23 +5,25 @@ const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
 const path = require('path');
 const { normalize } = require('./microphone-settings');
-const TYPES = ['mic.policy', 'mic.offer', 'mic.answer', 'mic.ice', 'mic.stop', 'mic.pulse'];
+const TYPES = ['mic.policy', 'mic.offer', 'mic.answer', 'mic.ice', 'mic.stop', 'mic.pulse', 'mic.ready', 'mic.ended'];
 const validId = (v) => typeof v === 'string' && /^[a-f0-9-]{36}$/.test(v);
 
 class Microphone extends EventEmitter {
-  constructor({ link, route, getSettings, platform, createWindow, now = Date.now }) {
+  constructor({ link, route, getSettings, platform, createWindow, receiver = null, now = Date.now }) {
     super();
     Object.assign(this, { link, route, getSettings, platform, createWindow, now });
     this.epoch = randomUUID();
     this.peer = null;
     this.held = false;
     this.blocked = false;
+    this.receiverFault = false;
     this.tx = null;
     this.rx = null;
     this.win = null;
     this.windowReady = false;
     this.error = '';
     this.devices = [];
+    this.receiver = receiver || { ready: () => true, begin: async () => {}, audio() {}, end: async () => {} };
     this.finished = new Set();
     this.lastPolicy = 0;
     link.onConnect(() => this.reset());
@@ -31,11 +33,11 @@ class Microphone extends EventEmitter {
   get cfg() { return normalize(this.getSettings()); }
   get paired() { return this.link.connected() && ['mac', 'win'].includes(this.link.os()) && this.link.transport() !== 'ble'; }
   get connected() { return this.paired && !this.blocked; }
-  get accepting() { return this.connected && this.cfg.receive && !!this.cfg.output; }
+  get accepting() { return this.connected && !this.receiverFault && this.cfg.receive && !(this.rx && this.rx.ending) && (this.cfg.mode === 'dictation' ? this.platform === 'win' && this.receiver.ready() : !!this.cfg.output); }
   send(m) { if (this.connected) this.link.send(m); }
   policy() {
     this.lastPolicy = this.now();
-    if (this.paired) this.link.send({ t: 'mic.policy', version: 1, epoch: this.epoch, accept: this.accepting });
+    if (this.paired) this.link.send({ t: 'mic.policy', version: 2, epoch: this.epoch, accept: this.accepting, mode: this.cfg.mode });
   }
   reset() {
     this.stop('Connection changed');
@@ -47,7 +49,7 @@ class Microphone extends EventEmitter {
   }
   changedSettings() {
     this.stop('Microphone settings changed');
-    this.error = '';
+    if (!this.receiverFault) this.error = '';
     this.policy();
     this.emit('change');
   }
@@ -57,10 +59,11 @@ class Microphone extends EventEmitter {
     this.emit('change');
   }
   key(down) {
-    if (!down) { this.held = false; this.stop('Released'); return; }
+    if (!down) { this.held = false; this.stop('Released', true); return; }
     if (this.held) return;
     this.held = true;
     if (!this.cfg.send) return;
+    if (this.tx || this.rx) { this.error = 'The previous voice session is still ending'; this.emit('change'); return; }
     if (!this.connected || !this.peer || !this.peer.accept) return this.fail('Turn on reception and choose an audio device on the other computer');
     if (this.route.mode() !== 'driving' || !this.route.generation()) return;
     this.error = '';
@@ -69,23 +72,59 @@ class Microphone extends EventEmitter {
     this.emit('change');
   }
   fail(text) { this.error = String(text).slice(0, 300); this.stop(this.error); this.emit('change'); }
-  stop(reason) {
-    for (const s of [this.tx, this.rx]) if (s) {
-      this.finished.add(s.id);
-      this.send({ t: 'mic.stop', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch });
+  stop(reason, drain = false) {
+    if (this.tx && !this.tx.ending) {
+      const s = this.tx;
+      this.finished.add(s.id); this.tx = null;
+      this.send({ t: 'mic.stop', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch, drain });
+      this.command({ action: 'stop' });
+    }
+    const s = this.rx;
+    if (s && !s.ending) {
+      s.ending = true; s.status = 'ending';
+      this.policy();
+      this.send({ t: 'mic.stop', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
+      if (drain && s.mediaReady) {
+        this.command({ action: 'finish', id: s.id });
+        s.flushDeadline = setTimeout(() => this.finishReceive(s, false), 600);
+      } else this.finishReceive(s, false);
     }
     if (this.finished.size > 256) { this.peer = null; this.finished.clear(); this.epoch = randomUUID(); }
-    this.tx = this.rx = null;
-    this.command({ action: 'stop' });
     this.emit('change');
+  }
+  finishReceive(s, drain) {
+    if (this.rx !== s || s.finishing) return;
+    s.finishing = true; clearTimeout(s.flushDeadline);
+    this.command({ action: 'stop' });
+    const finish = s.mode === 'dictation' ? this.receiver.end(s.id, drain) : Promise.resolve();
+    Promise.resolve(finish).then(() => this.receiveFinished(s, true), () => this.receiveFinished(s, false));
+  }
+  receiveFinished(s, ready) {
+    if (this.rx !== s) return;
+    this.rx = null; this.finished.add(s.id);
+    if (!ready) { this.receiverFault = true; this.error = 'Input method stop was not confirmed'; }
+    if (this.epoch === s.localEpoch && this.peer && this.peer.epoch === s.peerEpoch)
+      this.send({ t: 'mic.ended', id: s.id, epoch: s.localEpoch, target: s.peerEpoch, ready });
+    this.policy(); this.emit('change');
+  }
+  receivePrepared(s) {
+    if (this.rx !== s || s.ending || s.signalled || !s.mediaReady || !s.adapterReady) return;
+    s.signalled = true;
+    this.send({ t: 'mic.ready', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
+  }
+  receiverEnded(id, reason, ready) {
+    const s = this.rx;
+    if (!s || s.id !== id || s.ending) return;
+    this.error = ready ? 'The input method session ended; release F8 and try again' : 'Input method stop was not confirmed';
+    this.stop('Receiver ended');
   }
   message(m) {
     if (!this.connected || !m || typeof m !== 'object') return;
     if (m.t === 'mic.policy') {
-      if (m.version !== 1 || !validId(m.epoch)) return;
+      if (m.version !== 2 || !validId(m.epoch)) return;
       const first = !this.peer || this.peer.epoch !== m.epoch;
       if (first || (this.tx && m.accept !== true)) this.stop('Receiver policy changed');
-      this.peer = { epoch: m.epoch, accept: m.accept === true };
+      this.peer = { epoch: m.epoch, accept: m.accept === true, mode: m.mode === 'dictation' ? 'dictation' : 'microphone' };
       if (first) this.policy();
       this.emit('change');
       return;
@@ -95,14 +134,19 @@ class Microphone extends EventEmitter {
       if (!this.accepting || this.route.mode() !== 'driven' || m.route !== this.route.incoming() || !Number.isSafeInteger(m.route) || m.route <= 0 || typeof m.sdp !== 'string' || m.sdp.length > 65536) return;
       // Never replace a live round with a different offer. New rounds follow an explicit stop.
       if (this.rx || this.finished.has(m.id)) return;
-      this.rx = { id: m.id, route: m.route, at: this.now(), status: 'connecting', sdp: m.sdp };
-      this.command({ action: 'receive', id: m.id, sdp: m.sdp, output: this.cfg.output });
+      const s = this.rx = { id: m.id, route: m.route, at: this.now(), status: 'connecting', sdp: m.sdp, mode: this.cfg.mode, adapterReady: this.cfg.mode !== 'dictation', mediaReady: false, localEpoch: this.epoch, peerEpoch: this.peer.epoch };
+      if (s.mode === 'dictation') this.receiver.begin(s.id, s.route).then(() => {
+        if (this.rx !== s || s.ending) return;
+        s.adapterReady = true; this.receivePrepared(s);
+      }, () => { if (this.rx === s && !s.ending) this.fail('Input method could not start'); });
+      this.command({ action: 'receive', id: m.id, sdp: m.sdp, output: this.cfg.output, mode: s.mode });
       this.emit('change');
       return;
     }
     const s = this.tx || this.rx;
     if (!s || s.id !== m.id) return;
-    if (m.t === 'mic.stop') this.stop('Peer stopped');
+    if (m.t === 'mic.stop') this.stop('Peer stopped', m.drain === true);
+    else if (m.t === 'mic.ready' && this.tx) { this.tx.captureWanted = true; this.command({ action: 'capture', id: s.id }); }
     else if (m.t === 'mic.pulse') { s.at = this.now(); this.command({ action: 'pulse', id: s.id }); }
     else if (m.t === 'mic.answer' && this.tx && typeof m.sdp === 'string' && m.sdp.length <= 65536) this.command({ action: 'answer', id: s.id, sdp: m.sdp });
     else if (m.t === 'mic.ice' && m.candidate && typeof m.candidate.candidate === 'string' && m.candidate.candidate.length <= 4096) this.command({ action: 'ice', id: s.id, candidate: m.candidate });
@@ -141,8 +185,9 @@ class Microphone extends EventEmitter {
     if (m.action === 'ready') {
       if (this.windowReady) return;
       this.windowReady = true;
-      if (this.tx) this.command({ action: 'send', ...this.tx, input: this.cfg.input });
-      if (this.rx) this.command({ action: 'receive', id: this.rx.id, sdp: this.rx.sdp, output: this.cfg.output }); // offers are not replayed after stop
+      if (this.tx) if (!this.tx.ending) this.command({ action: 'send', ...this.tx, input: this.cfg.input });
+      if (this.rx && !this.rx.ending) this.command({ action: 'receive', id: this.rx.id, sdp: this.rx.sdp, output: this.cfg.output, mode: this.rx.mode });
+      if (this.tx && this.tx.captureWanted) this.command({ action: 'capture', id: this.tx.id }); // offers are not replayed after stop
       this.command({ action: 'devices' });
       return;
     }
@@ -154,6 +199,12 @@ class Microphone extends EventEmitter {
     const s = this.tx || this.rx;
     if (!s || s.id !== m.id) return;
     if (m.action === 'error') return this.fail(m.error);
+    if (this.rx === s && m.action === 'prepared') { s.mediaReady = true; this.receivePrepared(s); return; }
+    if (this.rx === s && m.action === 'flushed' && s.ending) { this.finishReceive(s, true); return; }
+    if (this.rx === s && m.action === 'pcm' && s.mode === 'dictation' && s.adapterReady && !s.finishing) {
+      if (!ArrayBuffer.isView(m.pcm) || m.pcm.byteLength > 19200 || m.pcm.byteLength % 2) return this.fail('Invalid input method audio frame');
+      this.receiver.audio(s.id, m.pcm); return;
+    }
     if (m.action === 'state') {
       s.status = String(m.status).slice(0, 40);
       if (['failed', 'disconnected', 'closed'].includes(s.status)) return this.fail('Microphone media connection ended');

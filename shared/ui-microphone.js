@@ -18,6 +18,15 @@
       const source = UI.select([{ value: '', label: tr('Default microphone') }], (input) => configure({ input }));
       const output = UI.select([{ value: '', label: tr('Choose a virtual audio device') }], (output) => configure({ output }));
       const sourceRow = UI.row(tr('Microphone source'), tr('Which of {me}’s microphones to share'), [source]);
+      const purpose = UI.select([], (mode) => configure({ mode }));
+      purpose.el.setAttribute('aria-label', tr('Use for'));
+      const purposeRow = UI.row(tr('Use for'), '', [purpose]);
+      const componentButton = UI.button(tr('Choose…'), () => UI.api.microphone({ do: 'chooseComponent' }));
+      const profileButton = UI.button(tr('Choose…'), () => UI.api.microphone({ do: 'chooseInputProfile' }));
+      const retryButton = UI.button(tr('Check again'), () => UI.api.microphone({ do: 'retryInputMethod' }));
+      const componentRow = UI.row(tr('Input method support component'), '', [componentButton], { literalHint: true });
+      const profileRow = UI.row(tr('Input method configuration'), '', [profileButton], { literalHint: true });
+      const adapterRow = UI.row(tr('Voice input'), '', [retryButton]);
       const outputRow = UI.row(tr('Receive through'), tr('In the app, choose the recording side of this virtual audio device.'), [output]);
       const sendLabel = tr('Use {me}’s microphone on {name}');
       const receiveLabel = tr('Use {name}’s microphone on {me}');
@@ -25,7 +34,7 @@
       if (UI.dirCards) {
         // Windows Audio uses dirCards: incoming first, outgoing second.
         const pair = UI.dirCards(
-          { on: { get: (s) => !!s.microphone.receive, set: (receive) => configure({ receive }) }, label: receiveLabel, rows: [outputRow] },
+          { on: { get: (s) => !!s.microphone.receive, set: (receive) => configure({ receive }) }, label: receiveLabel, rows: [purposeRow, outputRow, componentRow, profileRow, adapterRow] },
           { on: { get: (s) => !!s.microphone.send, set: (send) => configure({ send }) }, label: sendLabel, rows: [sourceRow] },
         );
         receiveRow = pair.a.main;
@@ -38,7 +47,7 @@
         const receiveSwitch = UI.switch((receive) => configure({ receive }), { label: receiveLabel });
         sendRow = UI.row(sendLabel, '', [sendSwitch], { literalHint: true });
         receiveRow = UI.row(receiveLabel, '', [receiveSwitch], { literalHint: true });
-        body.append(UI.pair(UI.dir('m2w', [sendRow, sourceRow]), UI.dir('w2m', [receiveRow, outputRow])));
+        body.append(UI.pair(UI.dir('m2w', [sendRow, sourceRow]), UI.dir('w2m', [receiveRow, purposeRow, outputRow, componentRow, profileRow, adapterRow])));
         updateDirections = (s) => { sendSwitch.set(s.microphone.send); receiveSwitch.set(s.microphone.receive); };
       }
       const refresh = UI.button(tr('Refresh audio devices'), () => UI.api.microphone({ do: 'devices' }));
@@ -53,6 +62,18 @@
         updateDirections(s);
         sendRow.querySelector('input').setAttribute('aria-label', UI.fill(sendLabel));
         receiveRow.querySelector('input').setAttribute('aria-label', UI.fill(receiveLabel));
+        const dictation = m.mode === 'dictation';
+        const inputMethod = m.inputMethod || { ready: false, status: 'off', error: '' };
+        purposeRow.hidden = m.platform !== 'win';
+        purpose.options([{ value: 'microphone', label: tr('Other apps (calls and recording)') }, ...(m.platform === 'win' ? [{ value: 'dictation', label: tr('Input method dictation') }] : [])]);
+        purpose.set(m.mode || 'microphone'); purpose.el.disabled = !m.receive;
+        outputRow.hidden = dictation;
+        for (const row of [componentRow, profileRow, adapterRow]) row.hidden = !dictation;
+        const filename = (value) => value ? String(value).split(/[\\/]/).pop() : tr('Not selected');
+        componentRow.setHint(filename(m.component)); profileRow.setHint(filename(m.profile));
+        componentButton.disabled = profileButton.disabled = retryButton.disabled = !m.receive;
+        const inputStatus = { off: 'Input method is not ready', starting: 'Checking input method…', ready: 'Input method is ready', preparing: 'Starting voice input…', speaking: 'Voice input is active', ending: 'Finishing voice input…', failed: 'Check the input method component and configuration' };
+        adapterRow.setHint(tr(inputStatus[inputMethod.status] || inputStatus.failed));
         const devices = m.devices || [];
         source.options([{ value: '', label: tr('Default microphone') }, ...devices.filter((d) => d.kind === 'audioinput' && !['default', 'communications'].includes(d.deviceId)).map((d, i) => ({ value: d.deviceId, label: d.label || tr('Microphone') + ' ' + (i + 1) }))]);
         output.options([{ value: '', label: tr('Choose a virtual audio device') }, ...devices.filter((d) => d.kind === 'audiooutput' && !['default', 'communications'].includes(d.deviceId)).map((d, i) => ({ value: d.deviceId, label: d.label || tr('Audio device') + ' ' + (i + 1) }))]);
@@ -62,8 +83,8 @@
         refresh.disabled = !(m.send || m.receive);
         stop.disabled = !(m.sending || m.receiving);
         sendRow.setHint(!m.send ? '' : !m.connected ? tr('Not connected') : !m.peerReady ? tr('Turn on reception and choose an audio device on the other computer') : m.sending ? tr(m.sending === 'connected' ? 'Sending microphone audio' : 'Connecting microphone…') : tr('Ready — hold F8 while using the other computer'));
-        receiveRow.setHint(!m.receive ? '' : !m.output ? tr('Choose a virtual audio device') : !m.connected ? tr('Not connected') : m.receiving ? tr(m.receiving === 'connected' ? 'Receiving microphone audio' : 'Connecting microphone…') : tr('Waiting for the other computer’s microphone'));
-        error.set(m.error ? tr(m.error) : '');
+        receiveRow.setHint(!m.receive ? '' : dictation ? tr(inputStatus[inputMethod.status] || inputStatus.failed) : !m.output ? tr('Choose a virtual audio device') : !m.connected ? tr('Not connected') : m.receiving ? tr(m.receiving === 'ending' ? 'Finishing voice input…' : m.receiving === 'connected' ? 'Receiving microphone audio' : 'Connecting microphone…') : tr('Waiting for the other computer’s microphone'));
+        error.set(m.error ? tr(m.error) : dictation && inputMethod.error ? tr(inputMethod.error) : '');
       };
     },
   });

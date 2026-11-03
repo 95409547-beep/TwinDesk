@@ -1,0 +1,75 @@
+{
+  "date": "2026-11-04",
+  "scope": "Development candidate; generic microphone in both logical platform directions; input-method receiver on Windows only",
+  "ui": "Real Mac and Windows UI kits in macOS Electron; icon, native master/off introduction, two named directions and independent switches; Windows purpose selector, component/config rows and retry action passed. Device names/state simulated.",
+  "pairSync": "Original pair.sync booleans only; purpose and local paths are not synchronized.",
+  "genericTransport": [
+    {
+      "ok": true,
+      "direction": "mac-to-win",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 9464,
+      "decodedAudioEnergy": 0.48509025484309637,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true,
+      "dictation": false
+    },
+    {
+      "ok": true,
+      "direction": "win-to-mac",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 10995,
+      "decodedAudioEnergy": 0.5656471754216063,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true,
+      "dictation": false
+    }
+  ],
+  "inputMethodTransport": {
+    "ok": true,
+    "direction": "mac-to-win",
+    "electron": "44.7.0",
+    "syntheticAudio": true,
+    "realMicrophoneOpened": false,
+    "virtualCableStubbed": true,
+    "receivedRtpBytes": 11777,
+    "decodedAudioEnergy": 0,
+    "opus": true,
+    "bothStoppedOnRelease": true,
+    "lateOfferRejected": true,
+    "dictation": true,
+    "nativeReadyBeforeCapture": true,
+    "pcmBytes": 349184,
+    "pcmPeak": 32768,
+    "nativeAudioBytes": 349184,
+    "nativeStopConfirmed": true
+  },
+  "nativeBackendInTransportTest": "Explicit fixture, not Windows RPC; production TwinDesk rejects fixture hello",
+  "portableNativeChecks": {
+    "passed": 16,
+    "nativeRpcLoaded": false,
+    "audioDeviceOpened": false,
+    "listenerStarted": false
+  },
+  "componentSource": {
+    "repository": "https://github.com/95409547-beep/deskflow-voice",
+    "branch": "feature/twindesk-ime-stdio",
+    "commit": "afdbc5ddebee335a7f654fb40f66d6ad6dd3b88d",
+    "ciRun": "https://github.com/95409547-beep/deskflow-voice/actions/runs/41686237363"
+  },
+  "inputMethodAutomationIntegrated": true,
+  "realWindowsInputMethodVerified": false,
+  "physicalDevicesVerified": false,
+  "installedApplicationsChanged": false,
+  "protocolVersion": 2,
+  "bothUpdatedClientsRequired": true,
+  "qaHostWarning": "Isolated QA bundle printed macOS sandbox extension warning; successful smoke runs exit 0. No release/install acceptance inferred."
+}

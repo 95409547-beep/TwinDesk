@@ -5,13 +5,13 @@ const { EventEmitter } = require('node:events');
 const { Microphone } = require('../microphone');
 const { normalize } = require('../microphone-settings');
 
-function rig(platform = 'mac') {
+function rig(platform = 'mac', receiver = null) {
   let time = 0, connected = true, mode = platform === 'mac' ? 'driving' : 'driven', route = 7;
   const callbacks = {}, wire = [], commands = [];
   const cfg = { send: platform === 'mac', receive: platform === 'win', output: 'virtual-cable' };
   const link = { connected: () => connected, os: () => platform === 'mac' ? 'win' : 'mac', transport: () => 'ip', send: (m) => wire.push(m), onConnect: (f) => callbacks.connect = f, onDisconnect: (f) => callbacks.disconnect = f, on: (t, f) => callbacks[t] = f };
   let win;
-  const mic = new Microphone({ link, platform, getSettings: () => cfg, now: () => time,
+  const mic = new Microphone({ link, platform, receiver, getSettings: () => cfg, now: () => time,
     route: { mode: () => mode, generation: () => route, incoming: () => route },
     createWindow: () => {
       win = new EventEmitter(); win.webContents = new EventEmitter(); win.webContents.send = (channel, m) => commands.push(m);
@@ -21,7 +21,7 @@ function rig(platform = 'mac') {
   });
   const peerEpoch = '11111111-1111-4111-8111-111111111111';
   const round = '22222222-2222-4222-8222-222222222222';
-  const policy = (accept = true, epoch = peerEpoch) => mic.message({ t: 'mic.policy', version: 1, epoch, accept });
+  const policy = (accept = true, epoch = peerEpoch) => mic.message({ t: 'mic.policy', version: 2, epoch, accept });
   const remote = (t, more = {}) => mic.message({ t, id: round, epoch: peerEpoch, target: mic.epoch, ...more });
   const windowMessage = (m) => mic.fromWindow({ sender: win.webContents }, m);
   return { mic, cfg, wire, commands, policy, remote, windowMessage, round, link, callbacks,
@@ -31,7 +31,8 @@ function rig(platform = 'mac') {
     reconnect: () => { connected = true; callbacks.connect(); },
   };
 }
-assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600) }), { send: false, receive: true, input: '', output: '' });
+(async () => {
+assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600) }), { send: false, receive: true, input: '', output: '', mode: 'microphone', component: '', profile: '' });
 {
  const r = rig(); r.mic.key(true);
  assert.equal(r.mic.tx, null, 'unknown peer cannot start capturing');
@@ -61,7 +62,7 @@ assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600
  const r = rig('win'); r.policy(); r.remote('mic.offer', { route: 7, sdp: 'offer' }); assert(r.mic.rx);
  r.ready(); assert(r.commands.some((m) => m.action === 'receive' && m.sdp === 'offer'), 'first offer survives lazy window startup only while still active');
  r.policy(false); assert(r.mic.rx, 'a sender does not need to accept reverse-direction audio to keep sending');
- r.remote('mic.stop'); assert.equal(r.mic.rx, null);
+ r.remote('mic.stop'); await new Promise(setImmediate); assert.equal(r.mic.rx, null);
  r.remote('mic.offer', { route: 7, sdp: 'offer' }); assert.equal(r.mic.rx, null, 'stopped offer is never replayed');
  r.remote('mic.offer', { id: '33333333-3333-4333-8333-333333333333', route: 6, sdp: 'old-route' }); assert.equal(r.mic.rx, null);
  r.remote('mic.offer', { id: '33333333-3333-4333-8333-333333333333', route: 7, target: 'old-epoch', sdp: 'old-connection' }); assert.equal(r.mic.rx, null);
@@ -87,6 +88,42 @@ for (const platform of ['mac', 'win']) {
  assert(send.mic.tx, platform + ' may share its own microphone'); send.mic.key(false);
  const receive = rig(platform); receive.cfg.receive = true; receive.mode('driven'); receive.policy();
  receive.remote('mic.offer', { route: 7, sdp: 'offer' }); assert(receive.mic.rx, platform + ' may use the other computer microphone');
- receive.remote('mic.stop'); assert.equal(receive.mic.rx, null);
+ receive.remote('mic.stop'); await new Promise(setImmediate); assert.equal(receive.mic.rx, null);
 }
-console.log('microphone: settings, fresh key edges, lazy startup cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');
+{
+ let started, ended;
+ const calls = [];
+ const receiver = { ready: () => true, begin: (id) => { calls.push('begin'); return new Promise(r=>started=r); }, audio: () => calls.push('audio'), end: (id, drain) => { calls.push(drain ? 'drain-end':'cancel'); return new Promise(r=>ended=r); } };
+ const r = rig('win', receiver); r.cfg.mode='dictation'; r.cfg.output=''; r.policy();
+ r.remote('mic.offer', { route:7,sdp:'offer' }); r.ready();
+ r.windowMessage({action:'prepared',id:r.round});
+ assert(!r.wire.some(m=>m.t==='mic.ready'),'native start must be acknowledged before capture');
+ r.windowMessage({action:'pcm',id:r.round,pcm:new Uint8Array(1920)}); assert(!calls.includes('audio'));
+ started(); await new Promise(setImmediate);
+ assert(r.wire.some(m=>m.t==='mic.ready'),'capture starts only when media and input method are ready');
+ r.windowMessage({action:'pcm',id:r.round,pcm:new Uint8Array(1920)});assert(calls.includes('audio'));
+ r.remote('mic.stop',{drain:true});assert(r.mic.rx.ending);
+ r.windowMessage({action:'flushed',id:r.round});assert(calls.includes('drain-end'));
+ assert(r.mic.rx,'UI must wait for native stop confirmation');
+ ended();await new Promise(setImmediate);assert.equal(r.mic.rx,null);
+ assert(r.wire.some(m=>m.t==='mic.ended'&&m.ready));
+}
+{
+ let start;const calls=[];
+ const receiver={ready:()=>true,begin:()=>new Promise(r=>start=r),audio(){},end:async(id,drain)=>calls.push(drain)};
+ const r=rig('win',receiver);r.cfg.mode='dictation';r.policy();r.remote('mic.offer',{route:7,sdp:'offer'});r.ready();
+ r.remote('mic.stop');start();await new Promise(setImmediate);
+ assert.deepEqual(calls,[false],'release during native startup cancels its owned round');
+ assert(!r.wire.some(m=>m.t==='mic.ready'),'late native start cannot re-open recording');
+}
+{
+ const receiver={ready:()=>true,begin:async()=>{},audio(){},end:async()=>{throw new Error('unconfirmed');}};
+ const r=rig('win',receiver);r.cfg.mode='dictation';r.policy();r.remote('mic.offer',{route:7,sdp:'offer'});r.ready();
+ r.remote('mic.stop');await new Promise(setImmediate);
+ assert(r.mic.receiverFault);assert(!r.mic.accepting,'failed native stop blocks another session');
+ r.cfg.mode='microphone';r.mic.changedSettings();
+ assert(!r.mic.accepting,'switching purpose cannot bypass an unconfirmed native stop');
+}
+console.log('microphone: settings, fresh key edges, native start/end confirmation, cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');
+
+})().catch(error=>{console.error(error);process.exitCode=1;});

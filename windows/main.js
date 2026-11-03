@@ -1044,7 +1044,7 @@ function buildState() {
     updates: updates ? updates.view : null,
     firewall: fw,
     audio: { ...settings.audio, ...sound.view() },
-    microphone: microphone ? microphone.view : null,
+    microphone: microphone ? { ...microphone.view, inputMethod: microphone.inputMethod } : null,
     pcScreen: pcScreen.view(),
     pcApps: pcApps.view(),
     macApps: settings.macApps,
