@@ -79,7 +79,9 @@
 - `sh mac-helper/build.sh`：单机、MULTI 和配套工具构建通过；上游已有 `main.swift:202` 可选值转换警告保留。
 - 既有 `peer-kvm-auth`、`lazy-features`、`sidebar-model`、`i18n`、`i18n-integration`、`i18n-mac-shell`、`i18n-mac-features` 回归通过；变更 JS 语法及 `git diff --check` 通过。
 
-最新两种用途、跨进程 PCM 和界面测试见 [validation-v3.json](validation-v3.json)；较早的 UI、开关同步和双向合成测试结果见 [validation-v2.json](validation-v2.json)；较早的单向结果保留在 [validation.json](validation.json)。Windows 原生 helper 编译及 F8 边沿逻辑自动化回归已通过 [Microphone checks](https://github.com/95409547-beep/TwinDesk/actions/runs/41641619543)（源码 `c80cc5e`，Windows/Ubuntu 检查均成功）；这不是实体按键验收。隔离 QA 应用启动时仍打印 macOS sandbox extension 提示，测试退出码为 0；没有把它当成正式安装验证。
+最新两种用途、跨进程 PCM 和界面测试见 [validation-v3.json](validation-v3.json)；较早的 UI、开关同步和双向合成测试结果见 [validation-v2.json](validation-v2.json)；较早的单向结果保留在 [validation.json](validation.json)。最新源码 `e221a06` 已通过 Windows/Ubuntu [Microphone checks](https://github.com/95409547-beep/TwinDesk/actions/runs/41688394535)，包括新输入法适配器、完整 Windows 原生 helper 编译及 F8 边沿逻辑自动化回归；这不是实体按键验收。隔离 QA 应用启动时仍打印 macOS sandbox extension 提示，测试退出码为 0；没有把它当成正式安装验证。
+
+Windows 独立输入法组件也已通过构建、managed 检查、16 项 stdio 检查及 self-contained 发布，[下载候选组件（含对应源码和许可）](https://github.com/95409547-beep/deskflow-voice/actions/runs/41686237363/artifacts/13254774244)。组件 exe SHA256 为 `0ddc4004543ba79ac9f06c51972b4655518913a7defe293f456ce325f5eb2c90`。同一工作流的未改动 C++ 基础检查 Windows/Ubuntu 已过，Mac runner 仍在排队；未把整个工作流记作成功。
 
 未完成：真实双向麦克风 → 虚拟音频设备 → 应用的连续语音、起音/尾音、真实跨屏 F8、新路径的真实输入法自动控制与转写、听感/延迟/带宽、长时间运行、干净机器、Windows 安装包和签名验收。此分支不是可替换当前稳定链路的发行版。
 
