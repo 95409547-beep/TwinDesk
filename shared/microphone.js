@@ -9,14 +9,14 @@ const TYPES = ['mic.policy', 'mic.offer', 'mic.answer', 'mic.ice', 'mic.stop', '
 const validId = (v) => typeof v === 'string' && /^[a-f0-9-]{36}$/.test(v);
 
 class Microphone extends EventEmitter {
-  constructor({ link, route, getSettings, platform, createWindow, receiver = null, now = Date.now }) {
+  constructor({ link, route, getSettings, platform, createWindow, now = Date.now }) {
     super();
     Object.assign(this, { link, route, getSettings, platform, createWindow, now });
     this.epoch = randomUUID();
     this.peer = null;
     this.held = false;
     this.blocked = false;
-    this.receiverFault = false;
+    this.doubao = 'checking';
     this.tx = null;
     this.awaitingEnd = null;
     this.rx = null;
@@ -24,7 +24,6 @@ class Microphone extends EventEmitter {
     this.windowReady = false;
     this.error = '';
     this.devices = [];
-    this.receiver = receiver || { ready: () => true, begin: async () => {}, audio() {}, end: async () => {} };
     this.finished = new Set();
     this.lastPolicy = 0;
     link.onConnect(() => this.reset());
@@ -34,7 +33,18 @@ class Microphone extends EventEmitter {
   get cfg() { return normalize(this.getSettings()); }
   get paired() { return this.link.connected() && ['mac', 'win'].includes(this.link.os()) && this.link.transport() !== 'ble'; }
   get connected() { return this.paired && !this.blocked; }
-  get accepting() { return this.connected && !this.receiverFault && this.cfg.receive && !(this.rx && this.rx.ending) && (this.cfg.mode === 'dictation' ? this.platform === 'win' && this.receiver.ready() : !!this.cfg.output); }
+  get accepting() {
+    const { receive, output, mode } = this.cfg;
+    return this.connected && receive && !!output && !this.rx?.ending &&
+      (mode !== 'dictation' || (this.platform === 'win' && this.doubao === 'installed'));
+  }
+  setDoubaoStatus(status) {
+    if (this.doubao === status) return;
+    this.doubao = status;
+    if (status !== 'installed' && this.cfg.mode === 'dictation' && this.rx) this.stop('Doubao Input Method unavailable');
+    this.policy();
+    this.emit('change');
+  }
   send(m) { if (this.connected) this.link.send(m); }
   policy() {
     this.lastPolicy = this.now();
@@ -51,7 +61,7 @@ class Microphone extends EventEmitter {
   }
   changedSettings() {
     this.stop('Microphone settings changed');
-    if (!this.receiverFault) this.error = '';
+    this.error = '';
     this.policy();
     this.emit('change');
   }
@@ -89,37 +99,25 @@ class Microphone extends EventEmitter {
       this.send({ t: 'mic.stop', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
       if (drain && s.mediaReady) {
         this.command({ action: 'finish', id: s.id });
-        s.flushDeadline = setTimeout(() => this.finishReceive(s, false), 600);
-      } else this.finishReceive(s, false);
+        s.flushDeadline = setTimeout(() => this.finishReceive(s), 600);
+      } else this.finishReceive(s);
     }
     if (this.finished.size > 256) { this.peer = null; this.finished.clear(); this.epoch = randomUUID(); }
     this.emit('change');
   }
-  finishReceive(s, drain) {
-    if (this.rx !== s || s.finishing) return;
-    s.finishing = true; clearTimeout(s.flushDeadline);
-    this.command({ action: 'stop' });
-    const finish = s.mode === 'dictation' ? this.receiver.end(s.id, drain) : Promise.resolve();
-    Promise.resolve(finish).then(() => this.receiveFinished(s, true), () => this.receiveFinished(s, false));
-  }
-  receiveFinished(s, ready) {
+  finishReceive(s) {
     if (this.rx !== s) return;
+    clearTimeout(s.flushDeadline);
+    this.command({ action: 'stop' });
     this.rx = null; this.finished.add(s.id);
-    if (!ready) { this.receiverFault = true; this.error = 'Input method stop was not confirmed'; }
     if (this.epoch === s.localEpoch && this.peer && this.peer.epoch === s.peerEpoch)
-      this.send({ t: 'mic.ended', id: s.id, epoch: s.localEpoch, target: s.peerEpoch, ready });
+      this.send({ t: 'mic.ended', id: s.id, epoch: s.localEpoch, target: s.peerEpoch, ready: true });
     this.policy(); this.emit('change');
   }
   receivePrepared(s) {
-    if (this.rx !== s || s.ending || s.signalled || !s.mediaReady || !s.adapterReady) return;
+    if (this.rx !== s || s.ending || s.signalled || !s.mediaReady) return;
     s.signalled = true;
     this.send({ t: 'mic.ready', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
-  }
-  receiverEnded(id, reason, ready) {
-    const s = this.rx;
-    if (!s || s.id !== id || s.ending) return;
-    this.error = ready ? 'The input method session ended; release F8 and try again' : 'Input method stop was not confirmed';
-    this.stop('Receiver ended');
   }
   message(m) {
     if (!this.connected || !m || typeof m !== 'object') return;
@@ -136,7 +134,7 @@ class Microphone extends EventEmitter {
     if (!this.peer || m.epoch !== this.peer.epoch || m.target !== this.epoch || !validId(m.id)) return;
     if (m.t === 'mic.ended' && this.awaitingEnd && m.id === this.awaitingEnd.id) {
       this.awaitingEnd = null;
-      if (m.ready !== true) { this.peer.accept = false; this.error = 'Input method stop was not confirmed'; }
+      if (m.ready !== true) { this.peer.accept = false; this.error = 'Microphone stop was not confirmed'; }
       else if (this.error === 'The previous voice session is still ending') this.error = '';
       this.emit('change'); return;
     }
@@ -144,12 +142,8 @@ class Microphone extends EventEmitter {
       if (!this.accepting || this.route.mode() !== 'driven' || m.route !== this.route.incoming() || !Number.isSafeInteger(m.route) || m.route <= 0 || typeof m.sdp !== 'string' || m.sdp.length > 65536) return;
       // Never replace a live round with a different offer. New rounds follow an explicit stop.
       if (this.rx || this.finished.has(m.id)) return;
-      const s = this.rx = { id: m.id, route: m.route, at: this.now(), status: 'connecting', sdp: m.sdp, mode: this.cfg.mode, adapterReady: this.cfg.mode !== 'dictation', mediaReady: false, localEpoch: this.epoch, peerEpoch: this.peer.epoch };
-      if (s.mode === 'dictation') this.receiver.begin(s.id, s.route).then(() => {
-        if (this.rx !== s || s.ending) return;
-        s.adapterReady = true; this.receivePrepared(s);
-      }, () => { if (this.rx === s && !s.ending) this.fail('Input method could not start'); });
-      this.command({ action: 'receive', id: m.id, sdp: m.sdp, output: this.cfg.output, mode: s.mode });
+      this.rx = { id: m.id, route: m.route, at: this.now(), status: 'connecting', sdp: m.sdp, mediaReady: false, localEpoch: this.epoch, peerEpoch: this.peer.epoch };
+      this.command({ action: 'receive', id: m.id, sdp: m.sdp, output: this.cfg.output });
       this.emit('change');
       return;
     }
@@ -165,7 +159,7 @@ class Microphone extends EventEmitter {
     this.routeChanged();
     if (this.awaitingEnd && this.now() - this.awaitingEnd.at > 8000) {
       this.awaitingEnd = null;
-      this.error = 'Input method stop was not confirmed';
+      this.error = 'Microphone stop was not confirmed';
       this.emit('change');
     }
     if (this.now() - this.lastPolicy > 3000) this.policy(); // capability discovery also works when this side starts later
@@ -201,7 +195,7 @@ class Microphone extends EventEmitter {
       if (this.windowReady) return;
       this.windowReady = true;
       if (this.tx) if (!this.tx.ending) this.command({ action: 'send', ...this.tx, input: this.cfg.input });
-      if (this.rx && !this.rx.ending) this.command({ action: 'receive', id: this.rx.id, sdp: this.rx.sdp, output: this.cfg.output, mode: this.rx.mode });
+      if (this.rx && !this.rx.ending) this.command({ action: 'receive', id: this.rx.id, sdp: this.rx.sdp, output: this.cfg.output });
       if (this.tx && this.tx.captureWanted) this.command({ action: 'capture', id: this.tx.id }); // offers are not replayed after stop
       this.command({ action: 'devices' });
       return;
@@ -215,11 +209,7 @@ class Microphone extends EventEmitter {
     if (!s || s.id !== m.id) return;
     if (m.action === 'error') return this.fail(m.error);
     if (this.rx === s && m.action === 'prepared') { s.mediaReady = true; this.receivePrepared(s); return; }
-    if (this.rx === s && m.action === 'flushed' && s.ending) { this.finishReceive(s, true); return; }
-    if (this.rx === s && m.action === 'pcm' && s.mode === 'dictation' && s.adapterReady && !s.finishing) {
-      if (!ArrayBuffer.isView(m.pcm) || m.pcm.byteLength > 19200 || m.pcm.byteLength % 2) return this.fail('Invalid input method audio frame');
-      this.receiver.audio(s.id, m.pcm); return;
-    }
+    if (this.rx === s && m.action === 'flushed' && s.ending) { this.finishReceive(s); return; }
     if (m.action === 'state') {
       s.status = String(m.status).slice(0, 40);
       if (['failed', 'disconnected', 'closed'].includes(s.status)) return this.fail('Microphone media connection ended');
@@ -238,7 +228,7 @@ class Microphone extends EventEmitter {
     if (w) w.destroy();
   }
   get view() {
-    return { ...this.cfg, platform: this.platform, connected: this.connected, peerReady: !!(this.peer && this.peer.accept), sending: this.tx ? this.tx.status : this.awaitingEnd ? 'ending' : null, receiving: this.rx && this.rx.status, error: this.error, devices: this.devices };
+    return { ...this.cfg, platform: this.platform, doubao: this.doubao, connected: this.connected, peerReady: !!(this.peer && this.peer.accept), sending: this.tx ? this.tx.status : this.awaitingEnd ? 'ending' : null, receiving: this.rx && this.rx.status, error: this.error, devices: this.devices };
   }
 }
 module.exports = { Microphone, TYPES };

@@ -5,13 +5,13 @@ const { EventEmitter } = require('node:events');
 const { Microphone } = require('../microphone');
 const { normalize } = require('../microphone-settings');
 
-function rig(platform = 'mac', receiver = null) {
+function rig(platform = 'mac') {
   let time = 0, connected = true, mode = platform === 'mac' ? 'driving' : 'driven', route = 7;
   const callbacks = {}, wire = [], commands = [];
   const cfg = { send: platform === 'mac', receive: platform === 'win', output: 'virtual-cable' };
   const link = { connected: () => connected, os: () => platform === 'mac' ? 'win' : 'mac', transport: () => 'ip', send: (m) => wire.push(m), onConnect: (f) => callbacks.connect = f, onDisconnect: (f) => callbacks.disconnect = f, on: (t, f) => callbacks[t] = f };
   let win;
-  const mic = new Microphone({ link, platform, receiver, getSettings: () => cfg, now: () => time,
+  const mic = new Microphone({ link, platform, getSettings: () => cfg, now: () => time,
     route: { mode: () => mode, generation: () => route, incoming: () => route },
     createWindow: () => {
       win = new EventEmitter(); win.webContents = new EventEmitter(); win.webContents.send = (channel, m) => commands.push(m);
@@ -32,7 +32,7 @@ function rig(platform = 'mac', receiver = null) {
   };
 }
 (async () => {
-assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600) }), { send: false, receive: true, input: '', output: '', mode: 'microphone', component: '', profile: '' });
+assert.deepEqual(normalize({ send: 'false', receive: true, input: 'x'.repeat(600), component: 'old.exe', profile: 'old.json' }), { send: false, receive: true, input: '', output: '', mode: 'microphone' });
 {
  const r = rig(); r.mic.key(true);
  assert.equal(r.mic.tx, null, 'unknown peer cannot start capturing');
@@ -91,38 +91,27 @@ for (const platform of ['mac', 'win']) {
  receive.remote('mic.stop'); await new Promise(setImmediate); assert.equal(receive.mic.rx, null);
 }
 {
- let started, ended;
- const calls = [];
- const receiver = { ready: () => true, begin: (id) => { calls.push('begin'); return new Promise(r=>started=r); }, audio: () => calls.push('audio'), end: (id, drain) => { calls.push(drain ? 'drain-end':'cancel'); return new Promise(r=>ended=r); } };
- const r = rig('win', receiver); r.cfg.mode='dictation'; r.cfg.output=''; r.policy();
- r.remote('mic.offer', { route:7,sdp:'offer' }); r.ready();
- r.windowMessage({action:'prepared',id:r.round});
- assert(!r.wire.some(m=>m.t==='mic.ready'),'native start must be acknowledged before capture');
- r.windowMessage({action:'pcm',id:r.round,pcm:new Uint8Array(1920)}); assert(!calls.includes('audio'));
- started(); await new Promise(setImmediate);
- assert(r.wire.some(m=>m.t==='mic.ready'),'capture starts only when media and input method are ready');
- r.windowMessage({action:'pcm',id:r.round,pcm:new Uint8Array(1920)});assert(calls.includes('audio'));
- r.remote('mic.stop',{drain:true});assert(r.mic.rx.ending);
- r.windowMessage({action:'flushed',id:r.round});assert(calls.includes('drain-end'));
- assert(r.mic.rx,'UI must wait for native stop confirmation');
- ended();await new Promise(setImmediate);assert.equal(r.mic.rx,null);
- assert(r.wire.some(m=>m.t==='mic.ended'&&m.ready));
-}
-{
- let start;const calls=[];
- const receiver={ready:()=>true,begin:()=>new Promise(r=>start=r),audio(){},end:async(id,drain)=>calls.push(drain)};
- const r=rig('win',receiver);r.cfg.mode='dictation';r.policy();r.remote('mic.offer',{route:7,sdp:'offer'});r.ready();
- r.remote('mic.stop');start();await new Promise(setImmediate);
- assert.deepEqual(calls,[false],'release during native startup cancels its owned round');
- assert(!r.wire.some(m=>m.t==='mic.ready'),'late native start cannot re-open recording');
-}
-{
- const receiver={ready:()=>true,begin:async()=>{},audio(){},end:async()=>{throw new Error('unconfirmed');}};
- const r=rig('win',receiver);r.cfg.mode='dictation';r.policy();r.remote('mic.offer',{route:7,sdp:'offer'});r.ready();
- r.remote('mic.stop');await new Promise(setImmediate);
- assert(r.mic.receiverFault);assert(!r.mic.accepting,'failed native stop blocks another session');
- r.cfg.mode='microphone';r.mic.changedSettings();
- assert(!r.mic.accepting,'switching purpose cannot bypass an unconfirmed native stop');
+ const r = rig('win');
+ r.cfg.mode = 'dictation';
+ r.mic.setDoubaoStatus('missing');
+ r.policy();
+ r.remote('mic.offer', { route: 7, sdp: 'offer' });
+ assert.equal(r.mic.rx, null, 'the Doubao route requires an installed input method');
+ r.cfg.output = '';
+ r.mic.setDoubaoStatus('installed');
+ assert(!r.mic.accepting, 'installation alone does not permit routing to a default speaker');
+ r.cfg.output = 'virtual-cable';
+ r.remote('mic.offer', { route: 7, sdp: 'offer' });
+ r.ready();
+ assert(r.commands.some(m => m.action === 'receive' && m.output === 'virtual-cable'));
+ r.windowMessage({ action: 'prepared', id: r.round });
+ assert(r.wire.some(m => m.t === 'mic.ready'));
+ r.mic.setDoubaoStatus('missing');
+ assert.equal(r.mic.rx, null, 'loss of installation closes the Doubao route');
+ assert(r.wire.some(m => m.t === 'mic.ended' && m.ready));
+ r.cfg.mode = 'microphone';
+ r.mic.changedSettings();
+ assert(r.mic.accepting, 'ordinary microphone routing does not depend on Doubao');
 }
 {
  const r=rig();r.policy();r.mic.key(true);r.ready();const id=r.mic.tx.id;
@@ -131,6 +120,6 @@ for (const platform of ['mac', 'win']) {
  r.mic.key(true);assert.equal(r.mic.tx,null,'a fresh press must wait for the receiver to confirm End');
  r.remote('mic.ended',{id,ready:false});assert.equal(r.mic.awaitingEnd,null);assert.match(r.mic.error,/not confirmed/);assert(!r.mic.peer.accept);
 }
-console.log('microphone: settings, fresh key edges, native start/end confirmation, cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');
+console.log('microphone: settings, fresh key edges, Doubao installation gate, media stop confirmation, cancellation, route/epoch isolation, replay rejection, timeout, revocation and output gate passed');
 
 })().catch(error=>{console.error(error);process.exitCode=1;});

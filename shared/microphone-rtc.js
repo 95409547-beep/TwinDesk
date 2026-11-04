@@ -6,7 +6,7 @@ let active = null;
 function stop() {
   const s = active;
   active = null;
-  out.pause(); out.srcObject = null; out.muted = false;
+  out.pause(); out.srcObject = null;
   if (!s) return;
   clearInterval(s.timer); clearTimeout(s.finishTimer);
   if (s.ctx) s.ctx.close().catch(() => {});
@@ -54,33 +54,12 @@ async function maybeCapture(s) {
     await devices();
   } catch (e) { report(s, { action: 'error', error: e.message }); if (current(s)) stop(); }
 }
-async function receiveTrack(s, track, mode) {
+async function receiveTrack(s, track) {
   try {
     if (!current(s)) return;
     s.stream = new MediaStream([track]);
-    if (mode === 'dictation') {
-      // Chromium needs the remote stream attached to a media element to drive RTP playout.
-      // Keep that element muted: decoded PCM is played only by the native component.
-      out.muted = true; out.srcObject = s.stream;
-      await out.play();
-      if (!current(s)) return;
-      s.ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
-      if (s.ctx.sampleRate !== 48000) throw new Error('Input method needs 48 kHz audio');
-      await s.ctx.audioWorklet.addModule('microphone-pcm-worklet.js');
-      if (!current(s)) return;
-      s.pcm = new AudioWorkletNode(s.ctx, 'microphone-pcm', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [1] });
-      s.pcm.port.onmessage = (event) => {
-        if (!current(s)) return;
-        if (event.data.pcm) report(s, { action: 'pcm', pcm: new Uint8Array(event.data.pcm) });
-        if (event.data.flushed && s.finishing) { report(s, { action: 'flushed' }); stop(); }
-      };
-      s.ctx.createMediaStreamSource(s.stream).connect(s.pcm);
-      s.pcm.connect(s.ctx.destination); // processor output is always zeros; native adapter owns playback
-      await s.ctx.resume();
-    } else {
-      out.srcObject = s.stream;
-      await out.play();
-    }
+    out.srcObject = s.stream;
+    await out.play();
     if (!current(s)) return;
     s.trackReady = true; maybePrepared(s);
   } catch (e) { report(s, { action: 'error', error: e.message }); if (current(s)) stop(); }
@@ -102,7 +81,7 @@ api.on(async (m) => {
     if (m.action === 'devices') return await devices();
     if (m.action === 'send') {
       s = start(m.id); s.sending = true; s.input = m.input;
-      // Negotiate with a silent track. Real capture waits for receiver/native readiness.
+      // Negotiate with a silent track. Real capture waits for receiver readiness.
       s.ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' });
       const destination = s.ctx.createMediaStreamDestination(); destination.channelCount = 1;
       const silence = s.ctx.createConstantSource(); silence.offset.value = 0; silence.connect(destination); silence.start();
@@ -123,17 +102,15 @@ api.on(async (m) => {
       return;
     }
     if (m.action === 'receive') {
-      if (m.mode !== 'dictation' && (!m.output || m.output === 'default' || m.output === 'communications')) throw new Error('Choose an explicit virtual cable output');
+      if (!m.output || m.output === 'default' || m.output === 'communications') throw new Error('Choose an explicit virtual cable output');
       s = start(m.id);
-      if (m.mode !== 'dictation') {
-        // Select before attaching a track. Failure never falls back to a speaker.
-        await out.setSinkId(m.output);
-        if (!current(s)) return;
-        const sinks = await navigator.mediaDevices.enumerateDevices();
-        if (!current(s)) return;
-        if (!sinks.some((d) => d.kind === 'audiooutput' && d.deviceId === m.output)) throw new Error('The selected output device is unavailable');
-      }
-      s.pc.ontrack = (e) => receiveTrack(s, e.track, m.mode);
+      // Select before attaching a track. Failure never falls back to a speaker.
+      await out.setSinkId(m.output);
+      if (!current(s)) return;
+      const sinks = await navigator.mediaDevices.enumerateDevices();
+      if (!current(s)) return;
+      if (!sinks.some((d) => d.kind === 'audiooutput' && d.deviceId === m.output)) throw new Error('The selected output device is unavailable');
+      s.pc.ontrack = (e) => receiveTrack(s, e.track);
       await remote(s, { type: 'offer', sdp: m.sdp });
       if (!current(s)) return;
       await s.pc.setLocalDescription(await s.pc.createAnswer());
@@ -147,8 +124,8 @@ api.on(async (m) => {
       s.finishing = true;
       s.finishTimer = setTimeout(() => {
         if (!current(s)) return;
-        if (s.pcm) s.pcm.port.postMessage('flush');
-        else { report(s, { action: 'flushed' }); stop(); }
+        report(s, { action: 'flushed' });
+        stop();
       }, 150);
     }
     else if (m.action === 'answer') await remote(s, { type: 'answer', sdp: m.sdp });
@@ -167,7 +144,7 @@ navigator.mediaDevices.addEventListener('devicechange', async () => {
     const all = await navigator.mediaDevices.enumerateDevices();
     const s = active;
     const input = s && s.sending && s.stream && s.stream.getAudioTracks()[0].getSettings().deviceId;
-    const output = s && !s.sending && !s.pcm && out.sinkId;
+    const output = s && !s.sending && out.sinkId;
     if (s && ((input && !all.some((d) => d.kind === 'audioinput' && d.deviceId === input)) || (output && !all.some((d) => d.kind === 'audiooutput' && d.deviceId === output)))) { report(s, { action: 'error', error: 'Selected audio device disconnected' }); stop(); }
     await devices();
   } catch {}

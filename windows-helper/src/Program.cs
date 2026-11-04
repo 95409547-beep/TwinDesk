@@ -205,6 +205,9 @@ namespace MacShare
                     case "microphoneConfig":
                         capture.MicrophoneEnabled = Json.Bool(c, "on", false);
                         break;
+                    case "doubaoInstalled":
+                        Async(c, delegate (Dictionary<string, object> r) { r["installed"] = DoubaoInputMethod.IsInstalled(); });
+                        return;
                     case "kvmConfig":
 #if MULTI
                         // sides: every side that leads to a connected device (CaptureMulti.cs); without it, the one side.

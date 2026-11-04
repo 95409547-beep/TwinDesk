@@ -29,7 +29,7 @@ app.whenReady().then(async () => {
   for (const platform of ['mac', 'win']) {
     state = {
       macName: 'QA Mac', device: { name: 'QA Windows' }, client: { name: 'QA Windows', os: 'win' }, peer: { name: 'QA Mac', os: 'mac' },
-      microphone: { platform, mode:'microphone', component:'', profile:'', send: true, receive: true, input: 'qa-mic', output: 'qa-cable', connected: true, peerReady: true, sending: null, receiving: null, error: '', devices: [
+      microphone: { platform, mode:'microphone', doubao:'checking', send: true, receive: true, input: 'qa-mic', output: 'qa-cable', connected: true, peerReady: true, sending: null, receiving: null, error: '', devices: [
         { kind: 'audioinput', deviceId: 'qa-mic', label: 'QA USB Microphone' }, { kind: 'audiooutput', deviceId: 'qa-cable', label: 'QA Virtual Audio' },
       ] },
     };
@@ -74,15 +74,26 @@ app.whenReady().then(async () => {
     if(platform==='win') {
       await w.webContents.executeJavaScript(`const select=document.querySelector('select[aria-label="使用方式"]');select.value='dictation';select.dispatchEvent(new Event('change'));void 0;`);await pause(100);
       assert.equal(state.microphone.mode,'dictation');
-      const visible=await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.row')).filter(e=>!e.hidden).map(e=>e.innerText).join('\\n')`);
-      assert(visible.includes('输入法支持组件')&&visible.includes('输入法配置'),'input controls use the incoming direction card');
-      await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(e=>e.innerText==='重新检查').click();void 0;`);await pause(50);
-      assert(actions.some(m=>m.do==='retryInputMethod'));
-      state.microphone.component='C:\\QA\\deskflow-windows-voice.exe';state.microphone.profile='C:\\QA\\input-method.json';state.microphone.inputMethod={ready:true,status:'ready',error:''};w.webContents.send('state',state);await pause(100);
+      const visible = () => w.webContents.executeJavaScript('document.body.innerText');
+      assert((await visible()).includes('正在检测安装状态'));
+      state.microphone.doubao = 'missing';
+      w.webContents.send('state', state);
+      await pause(100);
+      const missing = await visible();
+      assert(missing.includes('豆包语音输入') && missing.includes('豆包输入法') && missing.includes('未安装'));
+      assert(!missing.includes('输入法支持组件') && !missing.includes('输入法配置'));
+      await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('button')).find(e=>e.innerText==='官网下载').click();void 0;`);
+      await pause(50);
+      assert(actions.some(m=>m.do==='downloadDoubao'));
+      fs.writeFileSync(path.join(resultDir,'microphone-win-doubao-missing.png'),(await w.webContents.capturePage()).toPNG());
+      state.microphone.doubao = 'installed';
+      w.webContents.send('state', state);
+      await pause(100);
+      assert((await visible()).includes('已安装'));
       fs.writeFileSync(path.join(resultDir,'microphone-win-dictation.png'),(await w.webContents.capturePage()).toPNG());
     }
     w.destroy();
   }
-  console.log('microphone-ui: icon, native master/intro, two named routes, independent directions, source/receive devices and refresh passed on both UI kits');app.quit();
+  console.log('microphone-ui: icon, native master/intro, two named routes, independent directions, source/receive devices and refresh passed on both UI kits; Doubao detection states and download action passed');app.quit();
  } catch(e) {console.error(e);app.exit(1);}
 });

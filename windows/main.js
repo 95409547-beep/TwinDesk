@@ -1044,7 +1044,7 @@ function buildState() {
     updates: updates ? updates.view : null,
     firewall: fw,
     audio: { ...settings.audio, ...sound.view() },
-    microphone: microphone ? { ...microphone.view, inputMethod: microphone.inputMethod } : null,
+    microphone: microphone ? microphone.view : null,
     pcScreen: pcScreen.view(),
     pcApps: pcApps.view(),
     macApps: settings.macApps,
@@ -1207,6 +1207,7 @@ function createMainWindow(tab) {
   win.once('ready-to-show', show);
   // Hidden-window painting can stall; a loaded page can already be shown on our background.
   win.webContents.once('did-finish-load', show);
+  win.on('focus', () => microphone?.checkDoubao());
   win.on('close', () => saveBounds());
   win.on('closed', () => { if (mainWin === win) mainWin = null; });
 }

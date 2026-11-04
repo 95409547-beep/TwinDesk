@@ -30,13 +30,11 @@ jobs:
         run: |
           node shared/test/microphone.js
           node shared/test/microphone-renderer.js
-          node shared/test/input-method-adapter.js
           node shared/test/pairsync.js
           node shared/test/i18n.js
           node shared/test/sidebar-model.js
           node --check shared/ui-microphone.js
           node --check shared/microphone-runtime.js
-          node --check shared/microphone-pcm-worklet.js
           node --check shared/feature-art.js
       - name: Compile Windows native helpers
         if: runner.os == 'Windows'
@@ -49,3 +47,10 @@ jobs:
           "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:windows-helper\bin\microphone-key-test.exe windows-helper\src\MicrophoneKey.cs windows-helper\test\MicrophoneKeyTest.cs
           if errorlevel 1 exit /b 1
           windows-helper\bin\microphone-key-test.exe
+      - name: Doubao installation detection regression
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: |
+          "%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" /nologo /target:exe /out:windows-helper\bin\doubao-install-test.exe windows-helper\src\DoubaoInputMethod.cs windows-helper\test\DoubaoInputMethodTest.cs
+          if errorlevel 1 exit /b 1
+          windows-helper\bin\doubao-install-test.exe
