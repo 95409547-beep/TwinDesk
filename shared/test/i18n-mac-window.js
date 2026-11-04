@@ -108,12 +108,13 @@ async function testMode(mode) {
     await load('zh-CN');
     assert.strictEqual(await read('document.documentElement.lang'), 'zh-CN');
     assert.ok(await read('document.querySelector("#page-general").textContent.includes("屏幕录制")'));
-    for (const locale of ['en', 'zh-CN']) {
+    for (const preference of ['en', 'zh-CN', '']) {
       const loaded = new Promise((r) => win.webContents.once('did-finish-load', r));
-      await read(`(() => { const el = document.querySelector('#page-general select'); el.value = ${JSON.stringify(locale)}; el.dispatchEvent(new Event('change')); })()`);
+      await read(`(() => { const el = document.querySelector('#page-general select'); el.value = ${JSON.stringify(preference)}; el.dispatchEvent(new Event('change')); })()`);
       await loaded; await delay(100);
-      assert.strictEqual(await read('document.documentElement.lang'), locale);
-      assert.strictEqual(store.loadSettings().ui.language, locale);
+      assert.strictEqual(await read('document.documentElement.lang'), I18n.resolveLanguage(preference, 'zh-CN'));
+      assert.strictEqual(store.loadSettings().ui.language, preference);
+      assert.strictEqual(await read('document.querySelector("#page-general select").value'), preference);
       assert.strictEqual(settings.ui.tab, 'general');
     }
     state.ui.setupDone = false;

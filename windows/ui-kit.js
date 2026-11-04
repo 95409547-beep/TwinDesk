@@ -273,6 +273,12 @@ const UI = {
     return I18n.t(fw.message || '');
   },
 
+  pairingError(pairing, name = pairing.macName) {
+    const vars = { ...pairing.errorVars, name, Name: name };
+    if (vars.reason) vars.reason = I18n.t(vars.reason, { name, Name: name });
+    return I18n.t(pairing.error || '', vars);
+  },
+
   // Localize only the generated parts; keep monitor names, sizes and selection keys intact.
   monitorLabel(value) {
     const raw = String(value || '');

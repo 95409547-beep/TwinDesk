@@ -18,9 +18,10 @@ UI.tab({
     const { el, api } = UI;
     const t = (...args) => I18n.t(...args);
     const language = UI.select([
+      { value: '', label: t('Follow system language') },
       { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' },
     ], (v) => api.setLanguage(v));
-    language.set(I18n.locale);
+
     const PERMS = [
       { kind: 'screen', label: t('Screen Recording'), note: t('To share your screen') },
       { kind: 'accessibility', label: t('mac.accessibility'), note: t('So the other computer can control this one') },
@@ -95,6 +96,7 @@ UI.tab({
     );
 
     return (s) => {
+      language.set(s.ui?.language || '');
       media.update(s);
       wallSw.set(!s.phone || !s.phone.settings || s.phone.settings.wallpaper !== false);
       const ov = (s.ui && s.ui.overview) || {};

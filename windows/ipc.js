@@ -10,6 +10,7 @@ const { apply } = require('./settings');
 // ctx: link, discovery, screen, clip, kvm, terminal, fileDrop, smb, apps, phone, phoneViews, connectPhoneDev(d), settings, save(), push(), buildState(),
 //      checkFirewall(), fixFirewall(), setStartup(on)
 function setupIpc(ctx) {
+  const t = ctx.t || ((text) => text);
   const { link, discovery, screen, clip, kvm, sshd, fileDrop, smb, apps, sound, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, settings } = ctx;
 
   const handle = (name, fn) => ipcMain.handle(name, (_e, ...args) => fn(...args));
@@ -23,7 +24,7 @@ function setupIpc(ctx) {
   handle('getState', () => ctx.buildState());
   // A local UI preference: never synchronized to another device.
   handle('setLanguage', (language) => {
-    if (language !== 'en' && language !== 'zh-CN') return;
+    if (!['', 'en', 'zh-CN'].includes(language)) return;
     change('ui', { language }, () => ctx.onLanguage());
   });
   // Calls, Messages and Photos (shared/phonehub.js, loaded the first time it's used).
@@ -181,7 +182,7 @@ function setupIpc(ctx) {
   handle('sendFiles', sendFiles);
   handle('chooseSendFiles', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: 'Send files', buttonLabel: 'Send', properties: ['openFile', 'multiSelections'] });
+    const r = await dialog.showOpenDialog(win, { title: t('Send files'), buttonLabel: t('Send'), properties: ['openFile', 'multiSelections'] });
     if (!r.canceled) sendFiles(r.filePaths);
   });
   handle('setNotifs', (partial) => {
@@ -195,7 +196,7 @@ function setupIpc(ctx) {
   // General › Received files (shared/received.js): chosen here only, never by the page itself.
   handle('chooseReceivedFolder', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: 'Folder for received files', buttonLabel: 'Use this folder',
+    const r = await dialog.showOpenDialog(win, { title: t('Folder for received files'), buttonLabel: t('Use this folder'),
       defaultPath: receivedDir(settings, app.getPath('downloads')), properties: ['openDirectory', 'createDirectory'] });
     if (!r.canceled && r.filePaths[0]) change('files', { receivedFolder: r.filePaths[0] });
   });
@@ -204,7 +205,7 @@ function setupIpc(ctx) {
   handle('setShareOn', (on) => smb.setShareOn(on === true));
   handle('chooseShareFolder', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: 'Folder to share with the other computer', properties: ['openDirectory', 'createDirectory'] });
+    const r = await dialog.showOpenDialog(win, { title: t('Folder to share with the other computer'), properties: ['openDirectory', 'createDirectory'] });
     if (!r.canceled && r.filePaths[0]) await smb.chooseFolder(r.filePaths[0]);
   });
   handle('removeShare', () => smb.unshare());

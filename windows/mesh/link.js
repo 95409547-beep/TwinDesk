@@ -414,7 +414,7 @@ class Link {
 
   _onError(msg) {
     const code = msg.code;
-    if (this.mode === 'pair') return this._pairFailed(PAIR_ERRORS[code] || 'Pairing failed (' + code + ').');
+    if (this.mode === 'pair') return this._pairFailed(PAIR_ERRORS[code] || 'Pairing failed ({code}).', { code });
     if (code === P.E.BAD_TOKEN) {
       this.forget();
       this._setStatus('not_paired', 'Your Mac forgot {me}. Pair again.');
@@ -428,11 +428,12 @@ class Link {
     // The Mac closes the socket after an error; _onClose reconnects.
   }
 
-  _pairFailed(error) {
+  _pairFailed(error, vars) {
     const ps = this.pairState;
     if (!ps) return;
     ps.phase = 'failed';
     ps.error = error;
+    ps.errorVars = vars;
     ps.code = '';
     this._closeSocket();
     this._changed();
@@ -454,9 +455,10 @@ class Link {
       const ps = this.pairState;
       if (ps && ps.phase !== 'failed') {
         const nobody = /^(ECONNREFUSED|ETIMEDOUT|EHOSTUNREACH|ENETUNREACH)$/.test(this.lastError);
+        const reason = this.lastError;
         this._pairFailed(ps.phase === 'connecting'
-          ? (nobody ? 'No TwinDesk at ' + ps.address + '.' : 'Could not connect to ' + ps.address + (this.lastError ? ' (' + this.lastError + ')' : '') + '.')
-          : 'The connection to {name} closed.');
+          ? (nobody ? 'No TwinDesk at {address}.' : reason ? 'Could not connect to {address} ({reason}).' : 'Could not connect to {address}.')
+          : 'The connection to {name} closed.', { address: ps.address, reason });
       }
       return;
     }

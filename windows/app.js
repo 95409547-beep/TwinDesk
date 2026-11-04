@@ -247,7 +247,7 @@
       starting: t('Waiting for {name}…', { name: p.macName }),
       code: t('Check that {name} shows the same code, then click Codes match.', { name: p.macName }),
       waiting: t('Waiting for Allow on {name}…', { name: p.macName }),
-      failed: p.error,
+      failed: UI.pairingError(p),
       request: p.wired ? (p.allowed ? t('Pairing…') : p.qr ? t('{name} scanned the QR code. Click Allow to pair.', { name: p.macName }) : t('{name} is on the USB cable. Click Allow to pair.', { name: p.macName })) : !p.code ? t('Waiting for the code…') : p.allowed ? t('Waiting for {name}…', { name: p.macName }) : t('Check that {name} shows the same code, then click Allow.', { name: p.macName }),
     };
     $('pair-hint').textContent = hints[p.phase] || '';

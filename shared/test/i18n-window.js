@@ -150,6 +150,16 @@ async function testMode(mode) {
     assert.strictEqual(settings.ui.language, 'zh-CN');
     assert.strictEqual(await read('document.documentElement.lang'), 'zh-CN');
 
+    if (PLATFORM === 'windows') {
+      const automatic = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
+      await read('document.querySelector("#page-general select").value = ""; document.querySelector("#page-general select").dispatchEvent(new Event("change"))');
+      await automatic;
+      await delay(100);
+      assert.strictEqual(settings.ui.language, '');
+      assert.strictEqual(await read('document.documentElement.lang'), 'zh-CN');
+      assert.strictEqual(await read('document.querySelector("#page-general select").value'), '');
+    }
+
     state.found = [{ id: 'found', name: 'Work {me} $&', os: 'win', address: '192.0.2.11', port: 47800 }];
     settings.ui.tab = 'connection';
     for (const locale of ['en', 'zh-CN']) {

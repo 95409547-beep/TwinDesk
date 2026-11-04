@@ -9,9 +9,9 @@ UI.setup = (() => {
   const { el, api } = UI;
   const t = (...args) => I18n.t(...args);
   const language = UI.select([
+    { value: '', label: t('Follow system language') },
     { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' },
   ], (v) => api.setLanguage(v));
-  language.set(I18n.locale);
   const done = () => el('span', { class: 'pill good', text: t('Done') });
 
   const fwFix = UI.button(t('Fix'), () => api.fixFirewall(), 'small primary');
@@ -28,7 +28,7 @@ UI.setup = (() => {
     el('div', { class: 'app-mark', attrs: { 'aria-hidden': 'true' } }),
     el('h1', { text: t('Set up TwinDesk') }),
     el('p', { text: t('A few things before {me} can share with the other computer.') }),
-    UI.card('', [UI.row(t('Language'), t('Some pages are still in English. Changing the language reloads this window.'), [language])]),
+    UI.card('', [UI.row(t('Language'), t('Changing the language reloads this window.'), [language])]),
     UI.card('', [fwRow, helperRow, drvRow]),
     el('div', { class: 'setup-foot' }, [
       el('span', { class: 'hint', text: t('You can change these later in General and Display.') }),
@@ -40,6 +40,7 @@ UI.setup = (() => {
   const shown = new Set();
 
   function render(s) {
+    language.set(s.ui?.language || '');
     page.hidden = !s.setup.show;
     document.body.classList.toggle('setup', !page.hidden);
     if (page.hidden) return;

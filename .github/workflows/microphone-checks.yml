@@ -33,6 +33,9 @@ jobs:
           node shared/test/microphone-renderer.js
           node shared/test/pairsync.js
           node shared/test/i18n.js
+          node shared/test/i18n-integration.js
+          node shared/test/i18n-mac.js
+          node shared/test/i18n-mac-general.js
           node shared/test/sidebar-model.js
           node --check shared/ui-microphone.js
           node --check shared/microphone-runtime.js

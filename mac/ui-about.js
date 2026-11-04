@@ -74,7 +74,7 @@ UI.tab({
 
     return (s) => {
       const a = s.about || { app: {}, pc: {} };
-      nameEl.textContent = a.app.name || 'TwinDesk';
+      nameEl.textContent = t(a.app.name || 'TwinDesk');
       verEl.textContent = t('Version {version}', { version: a.app.version || s.version || '' });
       thanksRow.setHint(a.app.thanks || '');
       thanksRow.hidden = !a.app.thanks;
@@ -84,9 +84,9 @@ UI.tab({
         Kernel: a.pc.kernel,
         Processor: a.pc.cpu ? a.pc.cpu + (a.pc.cores ? t(' · {count} cores', { count: a.pc.cores }) : '') : '',
         Memory: a.pc.memory,
-        Architecture: a.pc.arch,
+        Architecture: t(a.pc.arch || ''),
       });
-      build.set({ Version: a.app.version, 'Built for': a.app.arch, Electron: a.app.electron, Chromium: a.app.chrome, 'Node.js': a.app.node });
+      build.set({ Version: a.app.version, 'Built for': t(a.app.arch || ''), Electron: a.app.electron, Chromium: a.app.chrome, 'Node.js': a.app.node });
       const u = s.updates;
       if (u) {
         updAuto.set(u.auto);

@@ -17,9 +17,10 @@ UI.tab({
     const { el, api } = UI;
     const t = (...args) => I18n.t(...args);
     const language = UI.select([
+      { value: '', label: t('Follow system language') },
       { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' },
     ], (v) => api.setLanguage(v));
-    language.set(I18n.locale);
+
     const startup = UI.switch((v) => api.setStartup(v), { label: t('Start with Windows') });
     // Received files (shared/received.js): where files sent here and saved from a phone go.
     const recvChange = UI.button(t('Change…'), () => api.chooseReceivedFolder(), 'small');
@@ -75,7 +76,7 @@ UI.tab({
         recvRow,
       ]),
       UI.card(t('Language'), [
-        UI.row(t('Language'), t('Some pages are still in English. Changing the language reloads this window.'), [language]),
+        UI.row(t('Language'), t('Changing the language reloads this window.'), [language]),
       ]),
       UI.card(t('Appearance'), [
         UI.row(t('Show a popup when switching'), t('When the mouse and keyboard move between devices'), [hudSw]),
@@ -89,6 +90,7 @@ UI.tab({
     );
 
     return (s) => {
+      language.set(s.ui?.language || '');
       media.update(s);
       wallSw.set(!s.phone || !s.phone.settings || s.phone.settings.wallpaper !== false);
       const ov = (s.ui && s.ui.overview) || {};

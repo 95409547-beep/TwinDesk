@@ -46,6 +46,9 @@ try {
     set('zh-CN'); assert.strictEqual(reloads, 1);
     set('en'); assert.strictEqual(store.loadSettings().ui.language, 'en');
     assert.strictEqual(reloads, 2);
+    set(''); assert.strictEqual(store.loadSettings().ui.language, '');
+    assert.strictEqual(reloads, 3);
+    set(''); assert.strictEqual(reloads, 3);
     actions.pairWith('peer');
     assert.strictEqual(connection.connect.message, `Asked ${device.name} to connect. Confirm on ${device.name}.`);
     assert.strictEqual(connection.connect.messageKey, 'Asked {name} to connect. Confirm on {name}.');
