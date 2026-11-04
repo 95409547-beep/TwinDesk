@@ -12,6 +12,7 @@ class MeshMicrophone extends EventEmitter {
     Object.assign(this, { hub, kvm, platform, settings, store, createWindow });
     this.routes = new Map(Object.entries(store.read('multi.json', {})?.microphoneRoutes || {}));
     this.peers = new Map();
+    this.localDirections = new Map();
     this.devices = [];
     this.doubao = 'checking';
     this.held = false;
@@ -90,6 +91,7 @@ class MeshMicrophone extends EventEmitter {
     const mic = this.peers.get(id);
     if (!mic) return;
     this.peers.delete(id);
+    this.localDirections.delete(id);
     if (this.keyOwner === mic) this.keyOwner = null;
     mic.shutdown();
     this.changed();
@@ -97,7 +99,12 @@ class MeshMicrophone extends EventEmitter {
   sync(message, id) {
     const directions = message.all?.microphone;
     if (directions) {
-      this.configure({ send: directions.in, receive: directions.out }, id, false);
+      // A host's initial snapshot may arrive after the user already changed a switch.
+      const edited = this.localDirections.get(id);
+      this.configure({
+        send: edited?.has('send') ? undefined : directions.in,
+        receive: edited?.has('receive') ? undefined : directions.out,
+      }, id, false);
     } else if (message.feature === 'microphone' && ['out', 'in'].includes(message.dir)) {
       this.configure({ [message.dir === 'out' ? 'receive' : 'send']: message.on }, id, false);
     }
@@ -111,14 +118,18 @@ class MeshMicrophone extends EventEmitter {
       send: typeof partial.send === 'boolean' ? partial.send : prev.send,
       receive: typeof partial.receive === 'boolean' ? partial.receive : prev.receive,
     });
-    if (JSON.stringify(prev) === JSON.stringify(next)) return;
-    this.routes.set(id, next);
-    const stored = this.store.read('multi.json', {});
-    this.store.write('multi.json', { ...stored, microphoneRoutes: Object.fromEntries(this.routes) });
-    mic.changedSettings();
+    if (JSON.stringify(prev) !== JSON.stringify(next)) {
+      this.routes.set(id, next);
+      const stored = this.store.read('multi.json', {});
+      this.store.write('multi.json', { ...stored, microphoneRoutes: Object.fromEntries(this.routes) });
+      mic.changedSettings();
+    }
     if (!notify) return;
     for (const [key, dir] of [['send', 'out'], ['receive', 'in']]) {
-      if (prev[key] !== next[key]) this.hub.bus.send(id, { t: T.PAIR_SYNC, feature: 'microphone', dir, on: next[key] });
+      if (typeof partial[key] !== 'boolean') continue;
+      if (!this.localDirections.has(id)) this.localDirections.set(id, new Set());
+      this.localDirections.get(id).add(key);
+      this.hub.bus.send(id, { t: T.PAIR_SYNC, feature: 'microphone', dir, on: next[key] });
     }
   }
   key(down) {

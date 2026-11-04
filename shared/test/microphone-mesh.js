@@ -63,10 +63,13 @@ function offer(source, target) {
   mac.hub.selectedId = a.id;
   mac.mic.configure({ send: true }, a.id);
   mac.mic.configure({ send: true }, b.id);
+  a.hub.bus.send(mac.id, { t: T.PAIR_SYNC, all: { microphone: { in: false, out: true } } });
   a.mic.configure({ output: 'cable-a' }, mac.id);
   b.mic.configure({ output: 'cable-b' }, mac.id);
   await flush();
   assert.equal(a.mic.peers.get(mac.id).cfg.receive, true);
+  assert.equal(mac.mic.peers.get(a.id).cfg.send, true, 'a late snapshot cannot undo a local switch');
+  assert.equal(mac.mic.peers.get(a.id).cfg.receive, true, 'an untouched direction still follows the host');
   assert.equal(b.mic.peers.get(mac.id).cfg.receive, true);
   assert.equal(a.mic.peers.get(b.id).cfg.receive, false);
   assert.equal(mac.data['multi.json'].microphoneRoutes[b.id].send, true);
