@@ -1909,4 +1909,5 @@
   "Finishing microphone transfer…": "Finishing microphone transfer…",
   "The previous voice session is still ending": "The previous voice session is still ending",
 
+  "Set microphone directions for the computer selected in the sidebar. Hold F8 to send to the computer you are controlling.": "Set microphone directions for the computer selected in the sidebar. Hold F8 to send to the computer you are controlling.",
 });

@@ -29,6 +29,7 @@ jobs:
         shell: bash
         run: |
           node shared/test/microphone.js
+          node shared/test/microphone-mesh.js
           node shared/test/microphone-renderer.js
           node shared/test/pairsync.js
           node shared/test/i18n.js

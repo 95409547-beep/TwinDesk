@@ -175,7 +175,7 @@ class Microphone extends EventEmitter {
       this.win = this.createWindow({
         show: false,
         webPreferences: { preload: path.join(__dirname, 'preload-microphone.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, partition: 'persist:twindesk-microphone', backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
-      });
+      }, this);
       const w = this.win;
       w.webContents.on('render-process-gone', () => {
         if (this.win !== w) return;

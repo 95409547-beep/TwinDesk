@@ -21,6 +21,10 @@ function setupIpc(ctx) {
   };
 
   handle('getState', () => ctx.buildState());
+  handle('microphone', (m) => {
+    if (m?.do === 'downloadDoubao') return shell.openExternal('https://shurufa.doubao.com/pc');
+    return ctx.microphone.action(m);
+  });
   // A local UI preference: never synchronized to another device.
   handle('setLanguage', (language) => {
     if (language !== 'en' && language !== 'zh-CN') return;

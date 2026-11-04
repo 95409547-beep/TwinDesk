@@ -1909,4 +1909,5 @@
   "Finishing microphone transfer…": "正在结束麦克风转发…",
   "The previous voice session is still ending": "上一轮语音还在结束，请稍后重新按下 F8",
 
+  "Set microphone directions for the computer selected in the sidebar. Hold F8 to send to the computer you are controlling.": "在侧栏选择要设置的电脑。按住 F8 时，麦克风声音会发给当前控制的电脑。",
 });

@@ -16,15 +16,18 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 async function until(fn, why, timeout = 12000) { const at = Date.now(); while (!await fn()) { if (Date.now() - at > timeout) throw new Error(why); await wait(40); } }
 let sender, receiver;
 const reverse = process.env.TWINDESK_MIC_SMOKE_REVERSE === '1';
-const senderPlatform = reverse ? 'win' : 'mac';
+const winPair = process.env.TWINDESK_MIC_SMOKE_WIN_PAIR === '1';
+const senderPlatform = reverse || winPair ? 'win' : 'mac';
+const receiverPlatform = reverse ? 'mac' : 'win';
 const wire = [];
-function make(platform) {
+function make(sending) {
+ const platform = sending ? senderPlatform : receiverPlatform;
  const callbacks = new Map();
  const mic = new Microphone({ platform,
-  getSettings: () => ({ send: platform === senderPlatform, receive: platform !== senderPlatform, input: '', output: 'virtual-cable', mode: dictation && platform !== senderPlatform ? 'dictation' : 'microphone' }),
-  route: { mode: () => platform === senderPlatform ? 'driving' : 'driven', generation: () => 7, incoming: () => 7 },
-  link: { connected: () => true, os: () => platform === 'mac' ? 'win' : 'mac', transport: () => 'ip', onConnect() {}, onDisconnect() {}, on: (t, fn) => callbacks.set(t, fn), send: (m) => { wire.push(m); setImmediate(() => { const peer = platform === senderPlatform ? receiver : sender; if (peer) peer.message(m); }); } },
-  createWindow: (options) => new BrowserWindow({ ...options, webPreferences: { ...options.webPreferences, partition: platform + '-synthetic-smoke' } }),
+  getSettings: () => ({ send: sending, receive: !sending, input: '', output: 'virtual-cable', mode: dictation && !sending ? 'dictation' : 'microphone' }),
+  route: { mode: () => sending ? 'driving' : 'driven', generation: () => 7, incoming: () => 7 },
+  link: { connected: () => true, os: () => sending ? receiverPlatform : senderPlatform, transport: () => 'ip', onConnect() {}, onDisconnect() {}, on: (t, fn) => callbacks.set(t, fn), send: (m) => { wire.push(m); setImmediate(() => { const peer = sending ? receiver : sender; if (peer) peer.message(m); }); } },
+  createWindow: (options) => new BrowserWindow({ ...options, webPreferences: { ...options.webPreferences, partition: (sending ? 'source' : 'target') + '-synthetic-smoke' } }),
  });
  return mic;
 }
@@ -32,7 +35,7 @@ ipcMain.on('microphone:media', (e, m) => { if (sender) sender.fromWindow(e, m); 
 app.whenReady().then(async () => {
  try {
   assert(!(dictation && reverse), 'the Doubao receiver is Windows only');
-  sender = make(senderPlatform); receiver = make(reverse ? 'mac' : 'win');
+  sender = make(true); receiver = make(false);
   if (dictation) receiver.setDoubaoStatus('installed');
   sender.command({ action: 'devices' }); receiver.command({ action: 'devices' });
   await until(() => sender.windowReady && receiver.windowReady, 'media preload failed');
@@ -66,7 +69,7 @@ app.whenReady().then(async () => {
     await until(async () => await sender.win.webContents.executeJavaScript('active === null') && await receiver.win.webContents.executeJavaScript('active === null'), 'release left renderer media running');
     receiver.message(wire.find((m) => m.t === 'mic.offer'));
     assert.equal(receiver.rx, null, 'late offer restarted receiver');
-    const result = { ok: true, direction: reverse ? 'win-to-mac' : 'mac-to-win', electron: process.versions.electron, syntheticAudio: true, realMicrophoneOpened: false, virtualCableStubbed: true, receivedRtpBytes: received, decodedAudioEnergy: energy, opus: true, bothStoppedOnRelease: true, lateOfferRejected: true, dictation };
+    const result = { ok: true, direction: senderPlatform + '-to-' + receiverPlatform, electron: process.versions.electron, syntheticAudio: true, realMicrophoneOpened: false, virtualCableStubbed: true, receivedRtpBytes: received, decodedAudioEnergy: energy, opus: true, bothStoppedOnRelease: true, lateOfferRejected: true, dictation };
     console.log(JSON.stringify(result));
     if (process.env.TWINDESK_MIC_SMOKE_RESULT) fs.writeFileSync(process.env.TWINDESK_MIC_SMOKE_RESULT, JSON.stringify(result, null, 2));
   } finally { clearInterval(timer); }

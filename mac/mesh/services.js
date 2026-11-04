@@ -48,6 +48,10 @@ function startServices({ server, getSettings, pushState, onHelperReady, hub: mes
   const drop = new Drop({ server, helper, displays, getSettings: s });
   const fileSend = new FileSend(server, s);
   kvm = new Kvm({ hub: meshHub, layoutSync, helper, getSettings: s, clipboard, input, drop, fileSend });
+  const microphone = require('../../shared/microphone-runtime').attach({
+    platform: 'mac', mesh: { hub: meshHub, kvm, store }, helper, settings: s(), changed: pushState,
+  });
+  kvm.on('change', () => microphone.routeChanged());
   require('../../shared/applog.js').linkStats(() => kvm.linkSample()); // the link's line in the log every 30 s
   const terminal = new Terminal(server, s);
   const smb = new Smb({ server, helper, getSettings: s, saveSettings: () => store.saveSettings(s()) });
@@ -105,8 +109,9 @@ function startServices({ server, getSettings, pushState, onHelperReady, hub: mes
   helper.start();
 
   return {
-    helper, displays, stream, input, clipboard, kvm, terminal, drop, smb, apps, sshClient, audio, pcView, pcApps, hub, fileSend, notifs, fileClip, wake, appSend, updateAwake,
+    helper, displays, stream, input, clipboard, kvm, terminal, drop, smb, apps, sshClient, audio, microphone, pcView, pcApps, hub, fileSend, notifs, fileClip, wake, appSend, updateAwake,
     shutdown() {
+      microphone.shutdown();
       pcView.shutdown();
       pcApps.shutdown();
       appSend.shutdown();

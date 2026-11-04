@@ -44,7 +44,16 @@ app.whenReady().then(async () => {
       const art=FeatureArt.create(d.id,{color:d.color,onDismiss:()=>apply(UI.state)});page.append(art.el);
       const body=UI.el('div',{class:'page-body'});page.append(body);document.getElementById('pages').append(page);
       const render=d.build(body);
-      function apply(s){UI.state=s;const on=d.master.get(s);master.set(on);page.classList.toggle('off',!on);art.set(!on);body.hidden=!art.el.hidden;render(s);if(UI.names)UI.names(s);if(UI.fillTree)UI.fillTree(page);}
+      function apply(s){
+        UI.state=s;const on=d.master.get(s);master.set(on);page.classList.toggle('off',!on);art.set(!on);body.hidden=!art.el.hidden;render(s);
+        if(UI.names) UI.names(s);
+        else {
+          // The Windows shell's renderPeer() refreshes text templates on selection changes.
+          for(const e of page.querySelectorAll('[data-peer]')) if(!e.closest('[data-literal]')) e.textContent=UI.fill(e.dataset.peer);
+          for(const e of page.querySelectorAll('[data-os="peer"]')) e.className='os-ico '+UI.osClass(UI.peer(s).os);
+          UI.fillTree(page);
+        }
+      }
       UI.api.onState(apply);apply(UI.state);window.qaReady=true;
     })()`);
     const css = platform === 'mac' ? ['control.css','control-pages.css'] : ['app.css','app-pages.css'];
@@ -91,6 +100,18 @@ app.whenReady().then(async () => {
       await pause(100);
       assert((await visible()).includes('已安装'));
       fs.writeFileSync(path.join(resultDir,'microphone-win-dictation.png'),(await w.webContents.capturePage()).toPNG());
+      // A different sidebar computer updates the native cards and the target of each setting.
+      state.peer = { name: 'QA Windows 2', os: 'win' };
+      Object.assign(state.microphone, { mesh: true, peerId: 'win-2', mode: 'microphone', send: true, receive: false });
+      w.webContents.send('state', state);
+      await pause(100);
+      assert((await visible()).includes('在 QA Windows 2 上使用 QA Windows 的麦克风'));
+      assert((await visible()).includes('在侧栏选择要设置的电脑'));
+      const switches = await w.webContents.executeJavaScript(`Array.from(document.querySelectorAll('.dir-card input')).map(e=>e.checked)`);
+      assert.deepEqual(switches, [false, true]);
+      await w.webContents.executeJavaScript(`document.querySelector('.dir-card input').click();void 0;`);
+      await pause(100);
+      assert.equal(actions.at(-1).peerId, 'win-2');
     }
     w.destroy();
   }

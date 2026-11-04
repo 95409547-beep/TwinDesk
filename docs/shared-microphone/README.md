@@ -2,7 +2,7 @@
 
 2026-11-04。上游基线为 `76b69c1d00609d5cb82e9e5cdfe2f42f8257955d`（`2.5.0-beta.1`）；个人 fork 的 `feature/shared-microphone` 分支。
 
-Mac 和 Windows 支持双向共享麦克风。Windows 接收端可选择「其他应用（通话、录音）」或「豆包语音输入」。界面和合成音频已验证，真实双机及豆包转写待验收。
+Mac 和 Windows 可跨系统或同系统共享麦克风，支持两台电脑配对和多设备模式。Windows 接收端可选择「其他应用（通话、录音）」或「豆包语音输入」。界面和合成音频已验证，真实双机及豆包转写待验收。
 
 ## 分页样式更新
 
@@ -54,7 +54,7 @@ Mac 和 Windows 支持双向共享麦克风。Windows 接收端可选择「其�
 - Windows 在切换为「豆包语音输入」、设置窗口重新获得焦点或刷新音频设备时，读取本机安装信息。「官网下载」按钮打开豆包输入法官方 PC 下载页。
 - 媒体窗口独立于屏幕分享，使用隔离持久会话保持设备 ID，限制麦克风/输出权限并禁止导航和新窗口。不改系统默认录音设备、扬声器音量或原声音功能。
 
-当前开放 **Mac / Windows 桌面端的双向代码候选、一对一、IP 连接**。Mesh、Bluetooth 媒体、右 Option/Siri 遥控器触发仍未在此分支开放。Windows 接收端提供豆包输入法安装检测和下载入口。两端仅列出浏览器可见的标准音频输入；特殊遥控器原始音频不能据此宣称已支持。
+麦克风转发使用 Mac / Windows 桌面端之间的 IP 连接。Windows 接收端提供豆包输入法安装检测和下载入口。两端仅列出浏览器可见的标准音频输入；特殊遥控器原始音频不能据此宣称已支持。
 
 ## 两端实际使用时的配置
 
@@ -66,17 +66,24 @@ Mac 和 Windows 支持双向共享麦克风。Windows 接收端可选择「其�
 4. 使用豆包时，在 Windows 接收卡片选择「豆包语音输入」。显示「未安装」时点击「官网下载」，安装完成后回到 TwinDesk 会再次检测。在 Windows 中将虚拟音频设备的录音端设为豆包使用的麦克风。下载入口为 [豆包输入法官网](https://shurufa.doubao.com/pc)。
 5. 将指针移到接收电脑，在豆包输入法内开始语音输入，再在声源电脑按住 F8 说话。松开 F8 后 TwinDesk 停止麦克风转发，在豆包内结束转写。部分 Mac 键盘需按 Fn+F8。通话和录音可选择「其他应用（通话、录音）」。
 
+## 三台及以上电脑
+
+在 TwinDesk 的「多设备」页开启多设备模式。从侧栏选中一台 Mac 或 Windows，进入「麦克风」，分别设置本机到它、它到本机的方向。每一对电脑单独保存设置。比如一台 Mac 的麦克风要供两台 Windows 使用，就分别选中两台 Windows，开启 Mac 到各自的方向。
+
+将光标移到目标电脑，再按住 F8，麦克风声音发给当前控制的电脑。切到另一台时，上一轮停止，松开后重新按 F8 可开始下一轮。
+
 ## 验证结果与边界
 
 已完成：
 
 - `node shared/test/microphone.js`：设置、按键边沿、提前松开、延迟窗口就绪、路由/epoch、重连、超时、策略撤销、旧 offer 拒绝和输出设备门槛。
+- `node shared/test/microphone-mesh.js`：三电脑的独立方向、Windows 对 Windows、路由归属和按住 F8 时切屏。
 - `node shared/test/microphone-renderer.js`：延迟授权取消、track 释放、SDP 先于 ICE、输出设备失败且不落回扬声器、先就绪后收音和松键后的尾音处理。
-- `mac/node_modules/.bin/electron shared/test/microphone-electron-smoke.js`（已安装 Mac 开发依赖时）：真实 WebRTC/Opus、合成声源、RTP 接收与非零解码能量、松开后两端媒体停止、旧 offer 不重启。两个逻辑平台方向均通过；接收 sink 在测试中模拟，未打开真实麦克风。
+- `mac/node_modules/.bin/electron shared/test/microphone-electron-smoke.js`（已安装 Mac 开发依赖时）：真实 WebRTC/Opus、合成声源、RTP 接收与非零解码能量、松开后两端媒体停止、旧 offer 不重启。Mac 到 Windows、Windows 到 Mac 和 Windows 到 Windows 均通过；接收 sink 在测试中模拟，未打开真实麦克风。
 - `mac/node_modules/.bin/electron shared/test/microphone-ui-smoke.js`（已安装 Mac 开发依赖时）：真实 Mac/Windows UI kit 的图标、页头总开关、原版关闭介绍、两张电脑方向卡、独立开关、设备选择及刷新操作；Windows 界面在 macOS Electron 中使用模拟设备和豆包安装状态，覆盖检测中、已安装、未安装和官网下载按钮操作。
 - `sh mac-helper/build.sh`：单机、MULTI 和配套工具构建通过；上游已有 `main.swift:202` 可选值转换警告保留。
 - 既有 `peer-kvm-auth`、`lazy-features`、`sidebar-model`、`i18n`、`i18n-integration`、`i18n-mac-shell`、`i18n-mac-features` 回归通过；变更 JS 语法及 `git diff --check` 通过。
 
 双向共享和豆包模式均通过 Electron 合成音频测试，接收音频设备使用模拟数据。Windows 自动化检查覆盖输入法安装项、普通豆包客户端和移除安装项。旧版验证记录保存在 [validation-v3.json](validation-v3.json)、[validation-v2.json](validation-v2.json) 和 [validation.json](validation.json)。
 
-实际 Windows 安装、虚拟音频设备、双机实体 F8 和豆包转写仍待真机验收。
+实体电脑组网、实际虚拟音频设备、跨屏 F8 和豆包转写仍待真机验收。

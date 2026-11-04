@@ -3,12 +3,13 @@
 'use strict';
 (() => {
   const tr = (s) => window.I18n ? window.I18n.t(s) : s;
-  const configure = (settings) => UI.api.microphone({ do: 'settings', settings });
+  const configure = (settings) => UI.api.microphone({ do: 'settings', settings, peerId: UI.state?.microphone?.peerId });
   UI.tab({
     id: 'microphone', icon: 'microphone', title: tr('Microphone'), group: 'More', order: 72,
     color: 'linear-gradient(#43b98f, #147d67)',
     desc: tr('Use one computer’s microphone on the other.'),
     wifiOnly: true,
+    hidden: (s) => !!s.microphone?.mesh && !s.microphone.peerId,
     master: {
       get: (s) => !!(s.microphone && (s.microphone.send || s.microphone.receive)),
       set: (v) => configure({ send: v, receive: v }),
@@ -49,12 +50,15 @@
       const refresh = UI.button(tr('Refresh audio devices'), () => UI.api.microphone({ do: 'devices' }));
       const stop = UI.button(tr('Stop'), () => UI.api.microphone({ do: 'stop' }), 'danger');
       body.append(UI.card(tr('Audio devices'), [UI.row(tr('Audio devices'), tr('Refreshing lists devices; it does not start recording.'), [refresh, stop])]));
-      const note = UI.note('info', tr('Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.'));
+      const note = UI.note('info', '');
       const error = UI.note('bad', '');
       body.append(note, error);
       return (s) => {
         const m = s.microphone;
         if (!m) return;
+        note.set(tr(m.mesh
+          ? 'Set microphone directions for the computer selected in the sidebar. Hold F8 to send to the computer you are controlling.'
+          : 'Move the pointer to the other computer and hold F8 to speak through its selected microphone route. Release F8 to stop.'));
         updateDirections(s);
         sendRow.querySelector('input').setAttribute('aria-label', UI.fill(sendLabel));
         receiveRow.querySelector('input').setAttribute('aria-label', UI.fill(receiveLabel));

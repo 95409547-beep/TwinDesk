@@ -3,23 +3,43 @@
 const { BrowserWindow, ipcMain, powerMonitor } = require('electron');
 const { Microphone } = require('./microphone');
 const { normalize } = require('./microphone-settings');
-function attach({ link, route, settings, platform, helper, save, changed }) {
-  const mic = new Microphone({ link, route, getSettings: () => settings.microphone, platform, createWindow: (o) => {
+function attach({ link, route, settings, platform, helper, save, changed, mesh }) {
+  const mediaOwners = new WeakMap();
+  const createWindow = (o, owner) => {
     const w = new BrowserWindow(o);
-    const owned = (wc) => wc === w.webContents;
-    w.webContents.session.setPermissionCheckHandler((wc, permission, origin, details) => owned(wc) &&
-      ((permission === 'media' && details.mediaType === 'audio' && (mic.cfg.send || mic.cfg.receive)) || (permission === 'speaker-selection' && mic.cfg.receive)));
-    w.webContents.session.setPermissionRequestHandler((wc, permission, done, details) => done(owned(wc) &&
-      ((permission === 'media' && mic.cfg.send && Array.isArray(details.mediaTypes) && details.mediaTypes.length > 0 && details.mediaTypes.every((t) => t === 'audio')) || (permission === 'speaker-selection' && mic.cfg.receive))));
+    mediaOwners.set(w.webContents, owner);
+    w.webContents.session.setPermissionCheckHandler((wc, permission, origin, details) => {
+      const cfg = mediaOwners.get(wc)?.cfg;
+      return !!cfg && ((permission === 'media' && details.mediaType === 'audio' && (cfg.send || cfg.receive)) ||
+        (permission === 'speaker-selection' && cfg.receive));
+    });
+    w.webContents.session.setPermissionRequestHandler((wc, permission, done, details) => {
+      const cfg = mediaOwners.get(wc)?.cfg;
+      done(!!cfg && ((permission === 'media' && cfg.send && Array.isArray(details.mediaTypes) && details.mediaTypes.length > 0 &&
+        details.mediaTypes.every((t) => t === 'audio')) || (permission === 'speaker-selection' && cfg.receive)));
+    });
     w.webContents.on('will-navigate', (event) => event.preventDefault());
     w.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
     return w;
-  } });
+  };
+  const mic = mesh
+    ? new (require('./microphone-mesh').MeshMicrophone)({ ...mesh, settings, platform, createWindow })
+    : new Microphone({ link, route, getSettings: () => settings.microphone, platform, createWindow });
   const media = (e, m) => mic.fromWindow(e, m);
   ipcMain.on('microphone:media', media);
   mic.on('change', changed);
   const timer = setInterval(() => mic.tick(), 1000);
-  const configure = () => helper && helper.running && helper.request('microphoneConfig', { on: mic.cfg.send && mic.connected }).catch((e) => mic.fail(e.message));
+  let configured;
+  const configure = () => {
+    if (!helper?.running) return;
+    const on = mesh ? mic.captureEnabled : mic.cfg.send && mic.connected;
+    if (configured === on) return;
+    configured = on;
+    helper.request('microphoneConfig', { on }).catch((e) => {
+      if (configured === on) configured = undefined;
+      mic.fail(e.message);
+    });
+  };
   let locked = false, sleeping = false;
   const availability = () => {
     mic.stop('Device locked or sleeping');
@@ -48,18 +68,29 @@ function attach({ link, route, settings, platform, helper, save, changed }) {
     }
   };
   if (helper) {
-    link.onConnect(configure);
-    link.onDisconnect(configure);
-    helper.on('ready', () => { mic.held = false; mic.stop('Input helper restarted'); configure(); mic.checkDoubao(); });
+    if (mesh) {
+      mesh.hub.on('peerAdded', () => mic.checkDoubao());
+      mic.on('change', configure);
+    } else {
+      link.onConnect(configure);
+      link.onDisconnect(configure);
+    }
+    helper.on('ready', () => { configured = undefined; mic.held = false; mic.stop('Input helper restarted'); configure(); mic.checkDoubao(); });
     helper.on('exit', () => mic.stop('Input helper stopped'));
     helper.on('event', (name, m) => { if (name === 'microphoneKey') mic.key(m.down === true); });
     configure();
   }
-  mic.applySettings = () => { mic.changedSettings(); configure(); mic.checkDoubao(); };
+  if (!mesh) mic.applySettings = () => { mic.changedSettings(); configure(); mic.checkDoubao(); };
   mic.checkDoubao();
   mic.action = (m) => {
     if (!m || typeof m !== 'object') return;
     if (m.do === 'settings') {
+      if (mesh) {
+        mic.configure(m.settings, m.peerId);
+        configure();
+        mic.checkDoubao();
+        return;
+      }
       const next = normalize({ ...settings.microphone, ...(m.settings || {}) });
       if (['default', 'communications'].includes(next.output)) next.output = '';
       settings.microphone = next;

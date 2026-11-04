@@ -725,6 +725,7 @@ class Kvm {
   _relayTo(to, side, offset, viaTake = false) {
     this.subRoute++;
     this.sub = { to, side, route: this.subRoute, viaTake };
+    this.onChange();
     console.log('[kvm] relay to ' + to + ' side ' + side + ' (driven by ' + this.partner + ')');
     this.helper.send('armReturn', { on: false });
     this.local.handle({ t: T.KVM_TAKE, route: this.subRoute, side: P.opposite(side), offset, mouse: true, keyboard: true }, to);
