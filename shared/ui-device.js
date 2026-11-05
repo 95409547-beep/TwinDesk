@@ -263,16 +263,27 @@
         const pi = (ctl && ctl.info) || {};
         const control = br.input === 'phone' ? t('Accessibility')
           : br.state === 'ready' ? t('ADB · ready') : br.state === 'connecting' ? t('ADB · connecting') : br.state === 'needsPair' ? t('ADB · not paired') : br.state === 'waitingWifi' ? t('ADB · off') : t('Not set up');
+        // Which TwinDesk it runs (dev.state's app: shared/appinfo.js), red when older than this one.
+        const ac = ctl && ctl.appCheck;
+        const verFact = () => {
+          if (!ac) return [];
+          const dd = el('dd', { text: ac.version || t('Older') });
+          dd.classList.toggle('dv-old', ac.older);
+          dd.title = ac.older ? t('Older than this one. Update it there: some features need the same version on both') : '';
+          return [el('dt', { text: 'TwinDesk' }), dd];
+        };
         facts.replaceChildren(...(phone ? [
           ...fact(t('Storage'), pi.storageTotal ? t('{used} of {total} GB', { used: pi.storageUsed, total: pi.storageTotal }) : info.storage ? t('{used} of {total} GB', { used: info.storage.used, total: info.storage.total }) : ''),
           ...fact(t('Network'), [pi.wifi, pi.cell].filter(Boolean).join(' · ')),
           ...fact(t('Control'), control),
           ...fact(t('Signal'), pi.signal),
           ...fact(t('Link'), via),
+          ...verFact(),
         ] : [
           ...fact(t('System'), s.peer && s.peer.osVersion),
           ...fact(t('Address'), (s.paired && s.paired.address) || (s.client && s.client.address)),
           ...fact(t('Link'), via),
+          ...verFact(),
         ]));
         facts.hidden = !facts.childElementCount;
 
@@ -319,14 +330,18 @@
         const nf = s.notifs || {};
         const history = (nf.history || []).slice(0, 6);
         notifCard.hidden = !nf.receive || ov.notifs === false;
-        const nk = JSON.stringify([history.map((h) => [h.id, h.at]), Object.keys(nf.historyIcons || {}).length, devName]);
+        const nk = JSON.stringify([history.map((h) => [h.id, h.at, h.actions]), Object.keys(nf.historyIcons || {}).length, devName, phone]);
         if (nk !== notifKey) {
           notifKey = nk;
           notifList.replaceChildren(...(history.length ? history.map((item) => {
             const text = [item.subtitle, item.body].filter(Boolean).join(' · ');
             const code = otpOf([item.title, item.body].join(' '));
             const copy = code ? UI.button(t('Copy {code}', { code }), () => api.copyText(code), 'small') : null;
-            const r = row([item.appName || item.app, item.title].filter(Boolean).join(' · '), (text || t('Notification')) + ' · ' + UI.ago(item.at), [copy]);
+            // A phone's: its own buttons (Mark as read…), and × dismisses it there too (shared/notifacts.js).
+            const acts = phone && api.notifReply ? (item.actions || []).map((a, i) => UI.button(a, () => api.notifReply({ id: item.id, act: i }), 'small')) : [];
+            const x = phone && api.notifReply ? UI.button('×', () => api.notifReply({ id: item.id, dismiss: true }), 'small') : null;
+            if (x) { x.title = t('Dismiss'); x.setAttribute('aria-label', t('Dismiss')); }
+            const r = row([item.appName || item.app, item.title].filter(Boolean).join(' · '), (text || t('Notification')) + ' · ' + UI.ago(item.at), [copy, ...acts, x]);
             const icon = (nf.historyIcons || {})[item.app];
             if (icon) {
               r.querySelector('.text').prepend(el('img', { class: 'dv-nicon', src: icon, alt: '' }));

@@ -1,0 +1,78 @@
+{
+  "date": "2026-11-05",
+  "upstream_tag": "v2.5.1",
+  "upstream_commit": "7fa445c40bf6fb5fbb577c1ce38adfe3bc5fb277",
+  "previous_fork_commit": "035d97216aa9cbeed8e19f0a70643c8e064b212b",
+  "local_checks": {
+    "microphone_state_renderer_mesh_coexistence": "passed",
+    "official_mic_and_phone_mic": "passed",
+    "language_settings_and_packaging": "passed",
+    "actual_electron_pages": {
+      "modes": [
+        "mac",
+        "mac/mesh",
+        "windows",
+        "windows/mesh"
+      ],
+      "language_preferences": [
+        "ru",
+        "tr",
+        "en",
+        "zh-CN",
+        ""
+      ],
+      "switch_and_persist": "passed"
+    },
+    "mac_native_build": {
+      "ordinary_and_multi": "passed",
+      "rust_native_lane": "not built; cargo is absent; upstream Node lane fallback"
+    },
+    "electron_runtime": "44.7.0"
+  },
+  "synthetic_audio": [
+    {
+      "ok": true,
+      "direction": "mac-to-win",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 11167,
+      "decodedAudioEnergy": 0.5275762940220807,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true,
+      "dictation": false
+    },
+    {
+      "ok": true,
+      "direction": "win-to-mac",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 11167,
+      "decodedAudioEnergy": 0.5275763128825139,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true,
+      "dictation": false
+    },
+    {
+      "ok": true,
+      "direction": "win-to-win",
+      "electron": "44.7.0",
+      "syntheticAudio": true,
+      "realMicrophoneOpened": false,
+      "virtualCableStubbed": true,
+      "receivedRtpBytes": 11280,
+      "decodedAudioEnergy": 0.6035849859398373,
+      "opus": true,
+      "bothStoppedOnRelease": true,
+      "lateOfferRejected": true,
+      "dictation": true
+    }
+  ],
+  "physical_devices_tested": false,
+  "real_doubao_transcription_tested": false
+}

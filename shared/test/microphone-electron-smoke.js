@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
     sender.key(false);
     await until(() => !sender.tx && !sender.awaitingEnd && !receiver.rx, 'release did not confirm the end on both controllers');
     await until(async () => await sender.win.webContents.executeJavaScript('active === null') && await receiver.win.webContents.executeJavaScript('active === null'), 'release left renderer media running');
-    receiver.message(wire.find((m) => m.t === 'mic.offer'));
+    receiver.message(wire.find((m) => m.t === 'ptt-mic.offer'));
     assert.equal(receiver.rx, null, 'late offer restarted receiver');
     const result = { ok: true, direction: senderPlatform + '-to-' + receiverPlatform, electron: process.versions.electron, syntheticAudio: true, realMicrophoneOpened: false, virtualCableStubbed: true, receivedRtpBytes: received, decodedAudioEnergy: energy, opus: true, bothStoppedOnRelease: true, lateOfferRejected: true, dictation };
     console.log(JSON.stringify(result));

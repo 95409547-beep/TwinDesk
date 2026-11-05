@@ -14,6 +14,8 @@ assert.strictEqual(I18n.resolveLanguage('', 'zh_Hans_SG'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('', 'zh-SG'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('', 'zh-TW'), 'en');
 assert.strictEqual(I18n.resolveLanguage('', 'fr-FR'), 'en');
+assert.strictEqual(I18n.resolveLanguage('', 'ru-RU'), 'ru');
+assert.strictEqual(I18n.resolveLanguage('', 'tr-TR'), 'tr');
 assert.strictEqual(I18n.resolveLanguage('en', 'zh-CN'), 'en');
 assert.strictEqual(I18n.resolveLanguage('zh-CN', 'en-US'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('../evil', 'en-US'), 'en');

@@ -24,6 +24,7 @@ class PeerApps {
 
     const link = this.link;
     link.on('welcome', () => {
+      this.rz = false;
       this.list = [];
       this.message = '';
       this._policy();
@@ -33,7 +34,7 @@ class PeerApps {
       this._sync([]);
     });
     link.on(T.PAPPS_RESULT, (m) => {
-      if (!this.active) return;
+      if (!this.appsHere) return;
       this.loading = false;
       const str = (v, n) => String(v == null ? '' : v).slice(0, n);
       this.list = (Array.isArray(m.apps) ? m.apps : []).filter((a) => a && a.id != null)
@@ -41,12 +42,12 @@ class PeerApps {
       this.onChange();
     });
     link.on(T.PAPP_LAUNCHED, (m) => {
-      if (!this.active || m.ok) return;
+      if (!this.appsHere || m.ok) return;
       const a = this.list.find((x) => x.id === String(m.id));
       this.message = 'Couldn’t open ' + (a ? a.name : 'the app') + (m.why ? ': ' + m.why : '');
       this.onChange();
     });
-    link.on(T.PAPP_WINDOWS, (m) => this.active && this.cfg.on && Array.isArray(m.windows) && this._sync(m.windows));
+    link.on(T.PAPP_WINDOWS, (m) => this.active && this.accepting && Array.isArray(m.windows) && this._sync(this.fromMac ? movedOnly(m.windows) : m.windows));
     link.on(T.RTC2_OFFER, (m) => this._onOffer(m));
     link.on(T.RTC2_ICE, (m) => {
       if (m.win !== 'send') return; // our own sender's sessions (sender.js)
@@ -82,29 +83,54 @@ class PeerApps {
   }
 
   // A PC or a Linux computer on the other end (the Mac does with apps.js instead).
+  // Any computer on the other end: its windows come here. A Mac's apps don't (it opens them with
+  // apps.js, as always): from a Mac only the windows moved here with Move windows.
   get active() {
-    return this.link.status.state === 'connected' && this.link.peerOs !== P.OS.MAC;
+    return this.link.status.state === 'connected';
+  }
+
+  get fromMac() {
+    return this.link.peerOs === P.OS.MAC;
+  }
+
+  // Its apps listed and opened here: a PC or a Linux computer only.
+  get appsHere() {
+    return this.active && !this.fromMac;
+  }
+
+  // Windows ReZume took from the other computer come too, with this tab's switch off (rezume.js take).
+  acceptReZume(on) {
+    if (this.rz === (on === true)) return;
+    this.rz = on === true;
+    this._policy();
+    if (!this.accepting) this._sync([]);
+  }
+
+  get accepting() {
+    const moves = !!(this.settings.pcApps && this.settings.pcApps.moveWindows); // Move windows takes the windows moved here too
+    if (this.fromMac) return moves; // a Mac's apps and ReZume windows come through apps.js
+    return !!this.cfg.on || this.rz === true || moves;
   }
 
   _policy() {
-    if (this.active) this.link.send({ t: T.PAPP_POLICY, accept: !!this.cfg.on });
+    if (this.active) this.link.send({ t: T.PAPP_POLICY, accept: this.accepting });
   }
 
   // Apps tab switch changed.
   apply() {
     this._policy();
-    if (!this.cfg.on) this._sync([]);
+    if (!this.accepting) this._sync([]);
     else if (!this.list.length) this.refresh();
     this.onChange();
   }
 
   refresh() {
-    if (!this.active || !this.cfg.on) return;
+    if (!this.appsHere || !this.cfg.on) return;
     if (this.link.send({ t: T.PAPPS_LIST })) { this.loading = true; this.onChange(); }
   }
 
   launch(id) {
-    if (!this.active || !this.cfg.on || typeof id !== 'string') return;
+    if (!this.appsHere || !this.cfg.on || typeof id !== 'string') return;
     const a = this.list.find((x) => x.id === id);
     this.message = '';
     this.popup('away', { key: 'Opening {app} on {name}…', vars: { app: a ? a.name : { key: 'the app' }, name: this.peerName() } });
@@ -126,6 +152,7 @@ class PeerApps {
         w: Math.max(80, Number(raw.w) || 800), h: Math.max(60, Number(raw.h) || 600), scale: Math.min(4, Math.max(1, Number(raw.scale) || 1)),
         popup: raw.popup === true, owner: Number(raw.owner), x: Number(raw.x) || 0, y: Number(raw.y) || 0,
         maxW: Number(raw.maxW) > 0 ? Number(raw.maxW) : 0, maxH: Number(raw.maxH) > 0 ? Number(raw.maxH) : 0,
+        moved: raw.moved === true, // dragged over from there (shared/movewin.js): it opens where the pointer came in
       };
       if (info.popup) {
         // A menu / drop-down: needs its owner's window here (listed before it).
@@ -142,6 +169,21 @@ class PeerApps {
     this.onChange();
   }
 
+  // A window grabbed with the move key crossed back (kvm.js, the helper's `moving`): if it's the
+  // copy of a window moved here, that window goes home (shared/movewin.js); the pointer goes there too.
+  returnWindow(xid) {
+    if (!this.active || !xid) return false;
+    for (const w of this.wins.values()) {
+      if (!w.info.moved || w.win.isDestroyed()) continue;
+      const h = w.win.getNativeWindowHandle();
+      const id = h.length >= 8 ? Number(h.readBigUInt64LE(0)) : h.readUInt32LE(0);
+      if (id !== xid) continue;
+      this.link.send({ t: T.PAPP_RETURN, wid: w.info.wid });
+      return true;
+    }
+    return false;
+  }
+
   _app(id) {
     return this.list.find((x) => x.id === id) || null;
   }
@@ -151,6 +193,8 @@ class PeerApps {
   }
 
   _title(info) {
+    // Moved here from the other computer: its name says so (it goes back when closed or dragged back).
+    if (info.moved) return this._i18n().t('{title} (from {name})', { title: info.title || this._i18n().t('App'), name: this.peerName() });
     const a = this._app(info.id);
     const name = a ? a.name : '';
     return info.title && name && !info.title.includes(name) ? info.title + ' · ' + name : info.title || name || this._i18n().t('App');
@@ -191,11 +235,20 @@ class PeerApps {
 
   _create(info) {
     if (info.popup) return this._createPopup(info);
-    const wa = displays.getPrimaryDisplay().workArea;
+    // A moved window comes in with the pointer: on that screen, its title bar under the pointer.
+    const at = info.moved ? displays.getCursorScreenPoint() : null;
+    const wa = (at ? displays.getDisplayNearestPoint(at) : displays.getPrimaryDisplay()).workArea;
+    const width = Math.min(Math.round(info.w / info.scale), wa.width);
+    const height = Math.min(Math.round(info.h / info.scale), wa.height - 40);
+    const where = at ? {
+      x: Math.round(Math.min(Math.max(at.x - width / 2, wa.x), wa.x + wa.width - width)),
+      y: Math.round(Math.min(Math.max(at.y - 16, wa.y), wa.y + wa.height - height)),
+    } : {};
     const win = new BrowserWindow({
       title: this._title(info),
-      width: Math.min(Math.round(info.w / info.scale), wa.width),
-      height: Math.min(Math.round(info.h / info.scale), wa.height - 40),
+      width,
+      height,
+      ...where,
       useContentSize: true,
       backgroundColor: '#000000',
       fullscreenable: false, // full screen stretched the picture; maximize resizes it over there
@@ -292,7 +345,7 @@ class PeerApps {
   }
 
   _onOffer(m) {
-    if (m.kind !== 'window' || typeof m.sdp !== 'string' || !this.cfg.on || !this.active) return;
+    if (m.kind !== 'window' || typeof m.sdp !== 'string' || !this.accepting || !this.active) return;
     const w = this.wins.get(Number(m.wid));
     if (!w || w.win.isDestroyed()) return; // not listed yet: the sender lists before it offers
     w.session = m.session;
@@ -332,6 +385,12 @@ function attachKeys(win, { send, enabled }) {
     }
   });
   return { release: () => { for (const c of [...held]) { held.delete(c); send({ t: T.IN_KEY_UP, code: c }); } } };
+}
+
+// A Mac's papp.windows: only the windows moved here (Move windows) and their pop-ups.
+function movedOnly(list) {
+  const moved = new Set(list.filter((w) => w && w.moved === true && !w.popup).map((w) => Number(w.wid)));
+  return list.filter((w) => w && (moved.has(Number(w.wid)) || (w.popup && moved.has(Number(w.owner)))));
 }
 
 module.exports = PeerApps;

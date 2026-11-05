@@ -7,6 +7,7 @@ const call = (name) => (...args) => ipcRenderer.invoke(name, ...args);
 contextBridge.exposeInMainWorld('macshare', {
   getState: call('getState'),
   setLanguage: call('setLanguage'),
+  setLook: call('setLook'), // General › Appearance: theme and accent colour
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
   onShowUpdate: (fn) => ipcRenderer.on('show-update', () => fn()),
   onGo: (fn) => ipcRenderer.on('go', (_e, tab) => fn(tab)),
@@ -55,6 +56,7 @@ contextBridge.exposeInMainWorld('macshare', {
   clearHistory: call('clearHistory'),
   setTab: call('setTab'),
   setMulti: call('setMulti'),
+  relaunch: call('relaunch'),
   setAudio: call('setAudio'),
   setTerminal: call('setTerminal'),
   openTerminal: call('openTerminal'),
@@ -84,6 +86,7 @@ contextBridge.exposeInMainWorld('macshare', {
   phoneScreen: call('phoneScreen'),
   phoneOpenApp: call('phoneOpenApp'),
   phoneCloseView: call('phoneCloseView'),
+  phoneScreenAct: call('phoneScreenAct'),
   phoneRetry: call('phoneRetry'),
   phoneAssets: call('phoneAssets'),
   setPcApps: call('setPcApps'),
@@ -96,6 +99,7 @@ contextBridge.exposeInMainWorld('macshare', {
   setStartup: call('setStartup'),
   quit: call('quit'),
   phoneInstallFull: call('phoneInstallFull'),
+  phoneInstallApps: call('phoneInstallApps'),
   setNet: call('setNet'),
   wifiSetup: call('wifiSetup'),
   setMesh: call('setMesh'),

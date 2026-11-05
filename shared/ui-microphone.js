@@ -40,11 +40,12 @@
         body.append(pair.el);
       } else {
         // Mac Audio uses pair + dir and a native switch in each direction's first row.
+        const { pair, dir } = UI;
         const sendSwitch = UI.switch((send) => configure({ send }), { label: sendLabel });
         const receiveSwitch = UI.switch((receive) => configure({ receive }), { label: receiveLabel });
         sendRow = UI.row(sendLabel, '', [sendSwitch], { literalHint: true });
         receiveRow = UI.row(receiveLabel, '', [receiveSwitch], { literalHint: true });
-        body.append(UI.pair(UI.dir('m2w', [sendRow, sourceRow]), UI.dir('w2m', [receiveRow, outputRow])));
+        body.append(pair(dir('m2w', [sendRow, sourceRow]), dir('w2m', [receiveRow, outputRow])));
         updateDirections = (s) => { sendSwitch.set(s.microphone.send); receiveSwitch.set(s.microphone.receive); };
       }
       const refresh = UI.button(tr('Refresh audio devices'), () => UI.api.microphone({ do: 'devices' }));
@@ -53,6 +54,7 @@
       const note = UI.note('info', '');
       const error = UI.note('bad', '');
       body.append(note, error);
+      body.append(UI.note('info', tr('For continuous sharing, use Audio › Microphone.')));
       return (s) => {
         const m = s.microphone;
         if (!m) return;

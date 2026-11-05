@@ -4,7 +4,11 @@
 const P = require('../shared/protocol.js');
 const CL = require('../shared/cursorlock.js');
 const { savedLanguage } = require('../shared/i18n.js');
+const Look = require('../shared/look.js');
 const { normalizeFolder } = require('../shared/received.js');
+
+// The keys that can be held to move a window to the other computer (the helper grabs with them).
+const MOVE_KEYS = ['ControlRight', 'ControlLeft', 'ShiftRight', 'ShiftLeft', 'AltRight', 'AltLeft', 'MetaRight', 'MetaLeft'];
 
 const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
 
@@ -70,12 +74,15 @@ function normalize(s) {
       linkedBy: kvm.linkedBy && typeof kvm.linkedBy === 'object'
         ? Object.fromEntries(Object.entries(kvm.linkedBy).filter(([, v]) => typeof v === 'boolean').slice(0, 50)) : {},
       gestures: bool(kvm.gestures, true), // Trackpad gestures work on the other computer (pair.sync 'gestures')
+      shakeHome: bool(kvm.shakeHome, true), // shake this computer's mouse while driving: the pointer comes home (the helper's shake)
+      syncPads: bool(kvm.syncPads, false), // every mouse and trackpad moves the one pointer; off: this PC's own takes it back (pair.sync 'syncPads')
       hotkeySwitch: bool(kvm.hotkeySwitch, false), // keyboard only (Cursor off): double-tap moves the keyboard over and back
       ble: bool(kvm.ble, true), // cursor sharing while the session runs through Bluetooth (pair.sync 'ble')
     },
     // hotkey: double-tap = mouse and keyboard home. lockKeys: cursor lock on/off (shared/cursorlock.js)
     keys: { swapCtrlCmd: bool(keys.swapCtrlCmd, true), hotkey: P.HOTKEYS.includes(keys.hotkey) ? keys.hotkey : P.HOTKEY_WIN, lockKeys: CL.validKeys(keys.lockKeys, CL.DEFAULT_KEYS.linux) },
-    app: { hud: bool(appS.hud, true) }, // popup when switching computers
+    // hud: popup when switching computers. inputProtocol: udp = tdv2 input lane (default), tcp = tdv1
+    app: { hud: bool(appS.hud, true), inputProtocol: appS.inputProtocol === 'tcp' ? 'tcp' : 'udp' },
     // New releases on GitHub (shared/updates.js); notified = the last version announced, skipped = version ignored
     updates: { auto: bool(up.auto, true), notified: typeof up.notified === 'string' ? up.notified.slice(0, 40) : '', skipped: typeof up.skipped === 'string' ? up.skipped.slice(0, 40) : '' },
     clipboard: {
@@ -125,6 +132,12 @@ function normalize(s) {
       // Bluetooth, this computer as its speaker (shared/btaudio.js), off until turned on
       phoneMedia: bool(audio.phoneMedia, was),
       phoneBt: bool(audio.phoneBt, false),
+      // Microphone (shared/mic.js): this computer's to the other (micSend), the other's here (micReceive),
+      // off until turned on; micDevice: the microphone sent, micOut: where the other's plays ('' = found)
+      micSend: bool(audio.micSend, false),
+      micReceive: bool(audio.micReceive, false),
+      micDevice: typeof audio.micDevice === 'string' ? audio.micDevice.slice(0, 200) : '',
+      micOut: typeof audio.micOut === 'string' ? audio.micOut.slice(0, 200) : '',
       phoneBtDevice: typeof audio.phoneBtDevice === 'string' ? audio.phoneBtDevice.slice(0, 400) : '',
     },
     terminal: {
@@ -158,11 +171,14 @@ function normalize(s) {
       extendSize: ['mac', '1920x1080', '2560x1440', '3840x2160'].includes(pcs.extendSize) ? pcs.extendSize : 'mac', // the virtual monitor
       sound: bool(pcs.sound, false), // the screen's sound in the same session
       input: bool(pcs.input, true), // the Mac's mouse and keyboard drive this PC
+      codec: pcs.codec === 'h265' ? 'h265' : 'h264', // Encoder (shared/screencodec.js)
       remote: bool(pcs.remote, true), // The viewer may start/stop and switch it (screen.ctl)
     },
     pairSync: pairSync(s.pairSync), // {deviceId: {feature: {out, in}}} (pairsync.js)
     wake: { peers: wakePeers(wk.peers) }, // {deviceId: {name, os, macs, address, at}} from wol.info
-    pcApps: { allow: bool(pca.allow, was) },
+    // moveWindows: the move key held, a window clicked and dragged past the shared edge goes to the
+    // other computer (shared/movewin.js), off until switched on; moveKey: which key.
+    pcApps: { allow: bool(pca.allow, was), moveWindows: bool(pca.moveWindows, false), moveKey: MOVE_KEYS.includes(pca.moveKey) ? pca.moveKey : 'ControlRight' },
     // A phone as the peer: its screen window, apps and setup
     phone: {
       sound: bool(ph.sound, false),
@@ -171,6 +187,9 @@ function normalize(s) {
       wallpaper: bool(ph.wallpaper, true),
       input: ph.input === 'phone' ? 'phone' : 'adb', // the mouse and keyboard through adb, or the phone's Accessibility service
       inputPicked: bool(ph.inputPicked, false), // not picked: automatic (phone-bridge.js inputMode)
+      // The screen and the sound: through wireless debugging or the phone itself (shared/phonemodes.js)
+      mirror: ['adb', 'native'].includes(ph.mirror) ? ph.mirror : 'auto',
+      soundVia: ['adb', 'native'].includes(ph.soundVia) ? ph.soundVia : 'auto',
       panel: bool(ph.panel, true), // the phone windows' controls in the title bar (its panel button hides them)
       // Keys in a phone window and on the phone (shared/phonechat.js): Enter sends in WhatsApp,
       // Instagram and Telegram (Shift+Enter a new line); the arrow keys swipe the screen.
@@ -196,7 +215,8 @@ function normalize(s) {
     // that restarts, a phone connecting don't bring the screen back).
     setup: { skipped: Array.isArray(setup.skipped) ? setup.skipped.filter((x) => typeof x === 'string').slice(0, 10) : [], done: bool(setup.done, Array.isArray(setup.skipped) && setup.skipped.length > 0) },
     // overview: what Overview shows (General › Overview); chats: Messages' chat apps; language: the UI's ('' = the system's).
-    ui: { tab: OLD_TABS[ui.tab] || (TABS.includes(ui.tab) ? ui.tab : 'overview'), overview: overviewParts(ui.overview), chats: bool(ui.chats, false), language: savedLanguage(ui.language) },
+    ui: { tab: OLD_TABS[ui.tab] || (TABS.includes(ui.tab) ? ui.tab : 'overview'), overview: overviewParts(ui.overview), chats: bool(ui.chats, false), language: savedLanguage(ui.language),
+      theme: Look.theme(ui.theme), accent: Look.accent(ui.accent) }, // General › Appearance (shared/look.js)
     windows: s.windows && typeof s.windows === 'object' ? s.windows : {},
   };
 }
@@ -249,4 +269,4 @@ function apply(settings, section, partial) {
   return changed;
 }
 
-module.exports = { normalize, apply };
+module.exports = { MOVE_KEYS, normalize, apply };

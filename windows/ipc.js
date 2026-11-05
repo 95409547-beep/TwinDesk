@@ -24,9 +24,13 @@ function setupIpc(ctx) {
   handle('getState', () => ctx.buildState());
   // A local UI preference: never synchronized to another device.
   handle('setLanguage', (language) => {
-    if (!['', 'en', 'zh-CN'].includes(language)) return;
+    if ((language !== '' && !require('../shared/i18n.js').savedLanguage(language))) return;
     change('ui', { language }, () => ctx.onLanguage());
   });
+  // General › Appearance: { theme } and/or { accent } ('' follows the system); local only.
+  handle('setLook', (o) => o && typeof o === 'object' && change('ui', {
+    ...(typeof o.theme === 'string' ? { theme: o.theme } : {}), ...(typeof o.accent === 'string' ? { accent: o.accent } : {}),
+  }, () => ctx.onLook && ctx.onLook()));
   // Calls, Messages and Photos (shared/phonehub.js, loaded the first time it's used).
   handle('hub', (r) => ctx.hub().act(r));
 
@@ -57,7 +61,9 @@ function setupIpc(ctx) {
   });
   handle('refreshFound', () => discovery.refresh());
   // A chat's answer (Messages' chat apps: shared/chats.js) or a notification's.
-  handle('notifReply', (r) => r && typeof r === 'object' && (r.chat ? !!(ctx.chats && ctx.chats() && ctx.chats().reply(String(r.chat), r.text)) : notifs.reply(String(r.id || ''), r.text))); // a phone chat's Reply, typed here
+  handle('notifReply', (r) => r && typeof r === 'object' && (r.chat ? !!(ctx.chats && ctx.chats() && ctx.chats().reply(String(r.chat), r.text, r.image))
+    : r.dismiss ? notifs.dismiss(String(r.id || '')) : Number.isInteger(r.act) ? notifs.act(String(r.id || ''), r.act) // Overview's × and buttons (shared/notifacts.js)
+      : notifs.reply(String(r.id || ''), r.text))); // a phone chat's Reply, typed here
   handle('qrPair', () => ctx.qrPair());
   handle('adbQr', (on) => ctx.adbQr(on === true)); // wireless debugging: pair with a QR code // Connection: the phone pairing QR code's link
   handle('importCancel', () => ctx.explorer() && ctx.explorer().cancel()); // Phone Files: stop importing into Explorer's folder
@@ -117,8 +123,13 @@ function setupIpc(ctx) {
     if (m?.do === 'downloadDoubao') return shell.openExternal('https://shurufa.doubao.com/pc');
     return ctx.microphone?.action(m);
   });
+  handle('setEncoder', (hw) => { require('./encoder').write(hw !== false); ctx.push(); }); // General › Advanced › Hardware encoder (#133): applies after a restart
+  handle('relaunch', () => { app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--hidden') }); app.quit(); }); // General › Advanced: a setting read at startup
   handle('setAudio', (partial) => change('audio', partial, () => {
     sound.apply();
+    const mic = ctx.loadMic && ctx.loadMic(); // Microphone: loaded when first on
+    if (mic) mic.apply();
+    if (partial && ('micReceive' in partial || 'micOut' in partial) && ctx.phone && ctx.phone.bridge && ctx.phone.bridge._sound) ctx.phone.bridge._sound(); // a phone's microphone, now
     // Loaded when first turned on (applied then); off, the loaded one stops.
     if (partial && 'phoneMedia' in partial && ctx.nowPlaying) ctx.nowPlaying.apply(); else if (partial && 'phoneMedia' in partial) ctx.loadNowPlaying();
     if (partial && 'phoneBt' in partial && ctx.btAudio) ctx.btAudio.apply(); else if (partial && 'phoneBt' in partial) ctx.loadBtAudio();
@@ -149,6 +160,9 @@ function setupIpc(ctx) {
     if (m.a === 'take') h.take();
     else if (m.a === 'dismiss') h.dismiss();
     else if (m.a === 'push') h.push();
+    // ReZume › Allowed apps: one app let through or not, or forgotten (no app: the whole list).
+    else if (m.a === 'allow' && typeof m.app === 'string') h.allow(m.list, m.app, m.on === true);
+    else if (m.a === 'forget') h.forget(m.list, typeof m.app === 'string' ? m.app : '');
   });
   // Remote tab: the phone's Remote page here (shared/phone-remote.js).
   handle('setRemote', (m) => {
@@ -221,7 +235,7 @@ function setupIpc(ctx) {
     change('pcScreen', partial, () => { pcScreen.applyInput(); if (!settings.pcScreen.input) pcApps.input.release(); if (settings.pcScreen.extendSize !== size) pcScreen.sizeExtend(); else pcScreen.apply(); });
   });
   handle('setMacApps', (partial) => change('macApps', partial, () => peerApps.apply()));
-  handle('setPcApps', (partial) => change('pcApps', partial, () => { pcApps.apply(); pcApps.input.release(); }));
+  handle('setPcApps', (partial) => change('pcApps', partial, () => { pcApps.apply(); pcApps.input.release(); if (peerApps) peerApps.apply(); }));
   handle('setPcScreenMode', (mode) => pcScreen.setMode(mode));
   // A phone as the peer (phone.js, phone-bridge.js, phoneview.js; there once our server runs)
   const phone = (name, fn) => handle(name, (...args) => (ctx.phone ? fn(...args) : undefined));
@@ -229,6 +243,7 @@ function setupIpc(ctx) {
   phone('disconnectPhone', () => ctx.phone.disconnect());
   handle('setPhone', (partial) => change('phone', partial, () => {
     if (partial && 'input' in partial && ctx.phone) ctx.phone.bridge.tellVia();
+    if (partial && ('input' in partial || 'mirror' in partial || 'soundVia' in partial) && ctx.phone) ctx.phone.bridge.modesChanged(); // ADB or Native (shared/phonemodes.js)
     if (partial && 'controls' in partial && ctx.phoneViews) ctx.phoneViews.applyControls(); // the open phone windows move theirs
     if (partial && ('enterSends' in partial || 'arrowSwipe' in partial) && ctx.phoneViews) ctx.phoneViews.applyOpts(); // and light their switches
   }));
@@ -260,8 +275,10 @@ function setupIpc(ctx) {
       { label: 'Pin to Start', click: () => ctx.phoneViews.pin(arg.id, name) },
     ]).popup();
   });
-  phone('phoneRetry', () => ctx.phone.bridge._kick());
+  phone('phoneRetry', () => ctx.phone.bridge.retry()); // also Set Up, when nothing used wireless debugging
   phone('phoneInstallFull', () => ctx.phone.bridge.installFull());
+  phone('phoneInstallApps', () => require('../shared/apkinstall.js').choose(ctx.phone.bridge, (s) => (ctx.t ? ctx.t(s) : s))); // Phone › Apps › Install Apps
+  phone('phoneScreenAct', (key) => (key === 'rotate' || key === 'screenPower') && ctx.phoneViews.screenAct(key)); // the Phone page's Rotate and Phone screen off
   handle('phoneAssets', () => (ctx.phone ? ctx.phone.assetsView() : { wallpaper: '', apps: [] }));
   handle('installVdd', () => vdd.install());
   handle('removeVdd', () => vdd.remove());

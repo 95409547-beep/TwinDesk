@@ -5,7 +5,11 @@
 // their windows and their menus / pop-ups (`popup`, `owner`, offset). Every window is its own `rtc2`
 // session (kind 'window', `win: 'send'`) from a hidden capture window, only while the viewer's
 // `papp.policy` accepts and "apps.offer" is on. Its input (`in.*` + `wid`) is injected at that
-// window. Nothing is captured before the viewer opened an app.
+// window. Nothing is captured before the viewer opened an app, or ReZume sent one that is open here
+// (adopt): independent of "apps.offer", and closing its copy there stops only that copy.
+// Opened or adopted apps' windows are never moved here. Only a window moved over (Move windows,
+// movewin.js) is kept out of the way: on TwinDesk's virtual display (held for it, displays.hold('apps')),
+// else past the right edge of the screens.
 //
 // Events: 'change'.
 'use strict';
@@ -14,6 +18,7 @@ const path = require('path');
 const { BrowserWindow, ipcMain, screen, desktopCapturer } = require('electron');
 const { EventEmitter } = require('events');
 const P = require('../shared/protocol.js');
+const ScreenCodec = require('../shared/screencodec.js');
 
 const T = P.T;
 const POLL_MS = 250;
@@ -22,11 +27,12 @@ const MAX_POPUPS = 6;
 const IN_TYPES = [T.IN_MOVE, T.IN_DOWN, T.IN_UP, T.IN_WHEEL, T.IN_KEY_DOWN, T.IN_KEY_UP];
 
 class AppSend extends EventEmitter {
-  constructor({ server, helper, getSettings }) {
+  constructor({ server, helper, displays, getSettings }) {
     super();
-    Object.assign(this, { server, helper, getSettings });
+    Object.assign(this, { server, helper, displays, getSettings });
     this.accepts = false; // the viewer's papp.policy
     this.launched = new Map(); // app id -> {id, pids: Set, since, had, lastSeen}
+    this.moved = new Map(); // wid -> {pid, x, y, w, h}: windows moved to the other computer (movewin.js), and where they were (points)
     this.windows = []; // the list last sent
     this.bounds = new Map(); // wid -> {x, y, width, height} points
     this.streams = new Map(); // wid -> session
@@ -46,9 +52,11 @@ class AppSend extends EventEmitter {
     server.on('closed', () => {
       if (server.current) return;
       this.accepts = false;
-      this.launched.clear();
+      for (const id of [...this.launched.keys()]) this._forget(id);
+      this.bringBack();
       this._sync([]);
     });
+    helper.on('ready', () => this._moveKey()); // a restarted helper is told the move key again
     const on = (t, fn) => server.on(`t:${t}`, fn);
     on(T.PAPP_POLICY, (m) => {
       this.accepts = m.accept === true;
@@ -57,7 +65,9 @@ class AppSend extends EventEmitter {
     on(T.PAPPS_LIST, () => this._list());
     on(T.PAPP_LAUNCH, (m) => typeof m.id === 'string' && this._launch(m.id));
     on(T.PAPP_FOCUS, (m) => this._mine(m.wid) && !this._popup(m.wid) && this.helper.request('appFocus', { wid: m.wid }).catch(() => {}));
-    on(T.PAPP_CLOSE, (m) => this._mine(m.wid) && this.helper.request('appClose', { wid: m.wid }).catch(() => {}));
+    // Closing a moved window's copy there brings it back here (it isn't closed); one ReZume sent stays open here.
+    on(T.PAPP_CLOSE, (m) => this._mine(m.wid) && (this.moved.has(m.wid) ? this.bringBack(m.wid) : !this._unfollow(m.wid) && this.helper.request('appClose', { wid: m.wid }).catch(() => {})));
+    on(T.PAPP_RETURN, (m) => this.moved.has(m.wid) && this.bringBack(m.wid, true));
     on(T.PAPP_SIZE, (m) => {
       const ok = (v) => Number.isInteger(v) && v >= 50 && v <= 16384;
       const w = this.windows.find((x) => x.wid === m.wid);
@@ -94,11 +104,71 @@ class AppSend extends EventEmitter {
     return this.getSettings().apps.offer !== false;
   }
 
+  // An app followed for ReZume (adopt), which the Apps switch doesn't stop.
+  get rezumes() {
+    for (const a of this.launched.values()) if (a.rz) return true;
+    return false;
+  }
+
   applySettings() {
+    const mv = !!this.getSettings().apps.moveWindows;
+    if (!mv) this.bringBack(); // Move windows off: every moved window back here
+    this._moveKey();
     if (!this.allowed) {
-      this.launched.clear();
-      this._sync([]);
+      for (const [id, a] of this.launched) if (!a.rz) this._forget(id);
+      if (this.launched.size) this._poll();
+      else this._sync([]);
     }
+  }
+
+  // The helper grabs a window with the move key and a click (Grab.swift); "" = off.
+  _moveKey() {
+    const a = this.getSettings().apps;
+    this.helper.send('moveWin', { key: a.moveWindows ? a.moveKey || 'MetaRight' : '' });
+  }
+
+  // Move windows (movewin.js, loaded only when used): a grabbed window crossed with the pointer
+  // goes over there; bringBack returns one or all of them.
+  moveOut(wid, pid) {
+    if (!this.getSettings().apps.moveWindows) return Promise.resolve(false);
+    return require('./movewin.js').moveOut(this, Number(wid), Number(pid));
+  }
+
+  bringBack(wid, home = false) {
+    if (this.moved.size) require('./movewin.js').bringBack(this, wid, home);
+  }
+
+  // ReZume: the windows of an app that is open here (its bundle id), streamed to the other Mac.
+  async adopt(id) {
+    if (typeof id !== 'string' || !/^[A-Za-z0-9.-]{1,200}$/.test(id) || !this.server.current) return false;
+    const had = this.launched.get(id);
+    if (had) {
+      if (had.skip) had.skip.clear();
+      this._poll();
+      return true;
+    }
+    const r = await this.helper.request('appLaunch', { appId: id }).catch(() => null); // it's running: its pid
+    if (!r || !r.pid) return false;
+    this.launched.set(id, { id, rz: true, skip: new Set(), pids: new Set([r.pid]), since: Date.now(), had: false, lastSeen: 0 });
+    this._poll();
+    return true;
+  }
+
+  // ReZume's window sharing turned off (app: only that app's windows).
+  unadopt(app) {
+    let any = false;
+    for (const [id, a] of this.launched) if (a.rz && (!app || a.id === app)) { this._forget(id); any = true; }
+    if (any && !this.launched.size) this._sync([]);
+  }
+
+  // A window ReZume sent, closed there: only its copy goes (the window stays open here).
+  _unfollow(wid) {
+    const w = this.windows.find((x) => x.wid === wid);
+    const a = w && this.launched.get(w.id);
+    if (!a || !a.rz) return false;
+    a.skip.add(wid);
+    this.helper.request('appFocus', { wid }).catch(() => {}); // back to the front here (it never left this screen)
+    return true;
   }
 
   _mine(wid) {
@@ -139,11 +209,11 @@ class AppSend extends EventEmitter {
     if (this.timer) return;
     const tick = async () => {
       this.timer = null;
-      if (!this.launched.size || !this.server.current) return this._sync([]);
-      const pids = [...this.launched.values()].flatMap((a) => [...a.pids]);
+      if ((!this.launched.size && !this.moved.size) || !this.server.current) return this._sync([]);
+      const pids = [...this.launched.values()].flatMap((a) => [...a.pids]).concat([...this.moved.values()].map((m) => m.pid));
       const r = await this.helper.request('appWindows', { pids, popups: true }).catch(() => null);
       if (r && Array.isArray(r.windows)) this._match(r.windows);
-      if (this.launched.size) this.timer = setTimeout(tick, POLL_MS);
+      if (this.launched.size || this.moved.size) this.timer = setTimeout(tick, POLL_MS);
     };
     this.timer = setTimeout(tick, 0);
   }
@@ -154,8 +224,9 @@ class AppSend extends EventEmitter {
     const out = [];
     const pops = [];
     this.bounds.clear();
+    if (this.moved.size) require('./movewin.js').list(this, all, out, pops); // moved windows (Move windows)
     for (const a of this.launched.values()) {
-      const mine = all.filter((w) => a.pids.has(w.pid));
+      const mine = all.filter((w) => a.pids.has(w.pid) && !(a.skip && a.skip.has(w.wid)));
       const main = mine.filter((w) => !w.popup);
       for (const w of main) out.push(this._entry(w, a.id));
       const popups = mine.filter((w) => w.popup).sort((x, y) => y.w * y.h - x.w * x.h).slice(0, MAX_POPUPS);
@@ -169,9 +240,35 @@ class AppSend extends EventEmitter {
         a.had = true;
         a.lastSeen = now;
       }
-      if ((a.had && now - a.lastSeen > 3000) || (!a.had && now - a.since > 30000)) this.launched.delete(a.id);
+      if ((a.had && now - a.lastSeen > 3000) || (!a.had && now - a.since > 30000)) this._forget(a.id);
     }
     this._sync(out.concat(pops)); // owners before their pop-ups
+  }
+
+  // A moved window (movewin.js) waits past the right edge of all the screens: helper's appMove places a window 40 pt into these bounds,
+  // so 1 pt of it stays on a screen (macOS wants some of every window there).
+  _edge() {
+    const all = screen.getAllDisplays();
+    const right = Math.max(...all.map((d) => d.bounds.x + d.bounds.width));
+    const top = screen.getPrimaryDisplay().bounds.y + 80;
+    return { x: right - 41, y: top, width: 100000, height: 100000 };
+  }
+
+  // The virtual display is held only while a window is moved over (no screen sharing needed).
+  _holdDisplay() {
+    if (!this.displays || !this.displays.hold) return Promise.resolve();
+    const want = this.moved.size > 0 && this.server.current != null;
+    if (want !== !!this.holding) {
+      this.holding = want;
+      this.holdDone = this.displays.hold('apps', want).catch(() => {});
+    }
+    return this.holdDone;
+  }
+
+  _forget(id) {
+    const a = this.launched.get(id);
+    if (!a) return;
+    this.launched.delete(id);
   }
 
   // One entry of papp.windows: sizes in physical px, `scale` = the display's backing scale.
@@ -187,13 +284,14 @@ class AppSend extends EventEmitter {
   }
 
   async _sync(list) {
+    this._holdDisplay();
     const key = JSON.stringify(list);
     const changed = key !== this.sentKey;
     if (changed && this.server.current) this.server.sendToClient({ t: T.PAPP_WINDOWS, windows: list });
     this.sentKey = key;
     this.windows = list;
     for (const wid of this.failed) if (!list.some((w) => w.wid === wid)) this.failed.delete(wid);
-    const want = this.accepts && this.allowed ? new Set(list.map((w) => w.wid)) : new Set();
+    const want = this.accepts && (this.allowed || this.rezumes || this.moved.size > 0) ? new Set(list.map((w) => w.wid)) : new Set();
     for (const [wid, session] of this.streams) {
       if (want.has(wid)) continue;
       this.streams.delete(wid);
@@ -212,6 +310,7 @@ class AppSend extends EventEmitter {
         this._toWin({
           t: 'start', session, sourceId: src ? src.id : `window:${wid}:0`, width: MAX_W, height: MAX_H, follow: true,
           mbps: this.getSettings().bitrateMbps, fps, offer: { kind: 'window', wid },
+          codec: ScreenCodec.mode((this.getSettings().sharing || {}).codec), // Share screen › Encoder
         });
       }
     }
@@ -276,13 +375,15 @@ class AppSend extends EventEmitter {
   }
 
   shutdown() {
-    this.launched.clear();
+    for (const id of [...this.launched.keys()]) this._forget(id);
+    this.bringBack(); // quitting: every moved window back here
+    if (this.holding && this.displays) this.displays.hold('apps', false).catch(() => {});
     for (const session of this.streams.values()) this._stop(session);
     this.streams.clear();
   }
 
   get view() {
-    return { accepts: this.accepts, open: this.windows.filter((w) => !w.popup).length, streaming: this.streams.size };
+    return { accepts: this.accepts, open: this.windows.filter((w) => !w.popup).length, streaming: this.streams.size, moved: this.moved.size };
   }
 }
 

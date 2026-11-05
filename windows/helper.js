@@ -22,6 +22,18 @@ class Helper extends EventEmitter {
     this.pending = new Map();
     this.stopped = false;
     this.error = '';
+    this.lowLat = new Set(); // why Wi-Fi low-latency mode is on (Wlan.cs): 'kvm', 'screen'
+    this.on('ready', () => { if (this.lowLat.size) this.send('wifiLowLatency', { on: true }); }); // a restarted helper forgot it
+  }
+
+  // Wi-Fi low-latency mode (Wlan.cs: media streaming on, background scans off) while any reason
+  // wants it: the cursor shared, a screen shown.
+  lowLatency(reason, on) {
+    const was = this.lowLat.size > 0;
+    if (on) this.lowLat.add(reason);
+    else this.lowLat.delete(reason);
+    const now = this.lowLat.size > 0;
+    if (now !== was) this.send('wifiLowLatency', { on: now });
   }
 
   start() {
@@ -32,7 +44,19 @@ class Helper extends EventEmitter {
       this.emit('exit', -1);
       return;
     }
-    const proc = spawn(EXE, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    // Windows can refuse to start it at all (Smart App Control blocks an unsigned helper: spawn
+    // throws UNKNOWN). The rest of the app goes on without it; asking again only brings the block back.
+    let proc;
+    try {
+      proc = spawn(EXE, [], { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    } catch (e) {
+      this._blocked(e);
+      return;
+    }
+    if (!proc.pid) { // failed: 'error' follows, and no 'exit'
+      proc.on('error', (e) => this._blocked(e));
+      return;
+    }
     this.proc = proc;
     this.buf = '';
     proc.stdout.setEncoding('utf8');
@@ -48,6 +72,12 @@ class Helper extends EventEmitter {
       this.emit('exit', code);
       if (!this.stopped) setTimeout(() => !this.stopped && this.start(), RESTART_MS);
     });
+  }
+
+  _blocked(e) {
+    this.error = 'Windows blocked the helper (' + (e.code || e.message) + '). Smart App Control blocks unsigned builds.';
+    console.warn('[helper] not started:', e.message);
+    this.emit('exit', -1);
   }
 
   stop() {
@@ -85,6 +115,14 @@ class Helper extends EventEmitter {
   _write(obj) {
     if (!this.proc) return false;
     this.proc.stdin.write(JSON.stringify(obj) + '\n');
+    return true;
+  }
+
+  // send('inject', {ev: {t: 'k.mm', dx, dy}}) as one string: no objects to build and walk for each
+  // summed move. The same line JSON.stringify makes (shared/test/helper-move.js).
+  sendMove(dx, dy) {
+    if (!this.proc) return false;
+    this.proc.stdin.write('{"ev":{"t":"k.mm","dx":' + (Number.isFinite(dx) ? dx : 0) + ',"dy":' + (Number.isFinite(dy) ? dy : 0) + '},"cmd":"inject"}\n');
     return true;
   }
 

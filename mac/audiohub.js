@@ -3,15 +3,29 @@
 // the screen session ("Share sound with the screen") and the standalone audio session (Audio tab).
 // Forwards whole stereo float32 frames to each consumer window, mutes this Mac while capturing if
 // asked (the capture taps app audio, so the system mute doesn't affect what is sent).
+// The screen's sound on macOS 14.2+ is Chromium's own capture instead (loopback(): no PCM through
+// Node, TwinDesk's own playback left out); this hub then only mutes, and feeds it if Chromium can't.
 'use strict';
 
 const { execFile, execFileSync } = require('child_process');
+
+// Chromium captures the system sound itself (getDisplayMedia's loopback, ScreenCaptureKit): macOS
+// 14.2+, only with TWINDESK_LOOPBACK_AUDIO=1. Off by default: it captures after the system mute (so
+// "Mute this Mac" sent silence) and keeps the other computer's sound in (Electron plays it from
+// another process), which loops when both share sound. Its features go in main.js's enable-features.
+const LOOPBACK_FEATURES = ['MacLoopbackAudioForScreenShare', 'MacSckSystemAudioLoopbackOverride'];
+function loopback() {
+  if (process.platform !== 'darwin' || !process.env.TWINDESK_LOOPBACK_AUDIO) return false;
+  const [major, minor] = String(process.getSystemVersion ? process.getSystemVersion() : '0').split('.').map(Number);
+  return major > 14 || (major === 14 && minor >= 2);
+}
 
 class AudioHub {
   constructor(helper, getSettings) {
     this.helper = helper;
     this.getSettings = getSettings;
     this.consumers = new Map(); // name -> webContents
+    this.loopbacks = new Set(); // names capturing with Chromium's loopback: "mute" applies to them too
     this.capturing = false;
     this.error = null;
     this.rest = null; // bytes of a split frame from the last pipe read
@@ -37,6 +51,13 @@ class AudioHub {
     this._sync();
   }
 
+  // `name` captures with Chromium's loopback (on) or stopped (off).
+  loopback(name, on) {
+    if (on) this.loopbacks.add(name);
+    else this.loopbacks.delete(name);
+    this.applyMute();
+  }
+
   async _sync() {
     const want = this.consumers.size > 0;
     if (want && !this.capturing) {
@@ -58,7 +79,7 @@ class AudioHub {
 
   // "Mute this Mac while sending".
   applyMute() {
-    const on = this.capturing && !!this.getSettings().audio.muteLocal;
+    const on = (this.capturing || this.loopbacks.size > 0) && !!this.getSettings().audio.muteLocal;
     if (on === this.mutedByUs) return;
     this.mutedByUs = on;
     execFile('/usr/bin/osascript', ['-e', on ? 'set volume with output muted' : 'set volume without output muted'], () => {});
@@ -84,4 +105,4 @@ class AudioHub {
   }
 }
 
-module.exports = { AudioHub };
+module.exports = { AudioHub, loopback, LOOPBACK_FEATURES };

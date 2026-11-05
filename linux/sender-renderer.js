@@ -24,7 +24,7 @@ function withBitrate(sdp, mbps) {
   let inVideo = false;
   for (const l of lines) {
     if (l.startsWith('m=')) inVideo = l.startsWith('m=video');
-    const m = inVideo && /^a=rtpmap:(\d+) (H264|VP8|VP9|AV1)\//i.exec(l);
+    const m = inVideo && window.TwinDeskScreenCodec.RTPMAP.exec(l);
     if (m) pts.add(m[1]);
   }
   return lines.map((l) => {
@@ -51,7 +51,7 @@ function withOpus(sdp) {
 // lowers quality, never the frame rate (dropped frames are what feels jagged and adds lag).
 async function start(m) {
   stop(m.session);
-  const me = { session: m.session, pending: [], mbps: m.mbps };
+  const me = { session: m.session, pending: [], mbps: m.mbps, codec: m.codec };
   const fps = m.fps || 60;
   sessions.set(me.session, me);
   try {
@@ -80,13 +80,9 @@ async function start(m) {
     const tr = pc.addTransceiver(track, { direction: 'sendonly', streams: [stream] });
     const audio = stream.getAudioTracks()[0];
     if (audio) pc.addTransceiver(audio, { direction: 'sendonly', streams: [stream] });
-    // H.264 first (hardware encode where there is one, VideoToolbox decode on a Mac), High before Main before Baseline.
-    const rank = (c) => {
-      if (!/h264/i.test(c.mimeType)) return 9;
-      const p = /profile-level-id=(..)/i.exec(c.sdpFmtpLine || '');
-      return { 64: 0, '4d': 1, '42': 2 }[p ? p[1].toLowerCase() : ''] ?? 3;
-    };
-    tr.setCodecPreferences(RTCRtpSender.getCapabilities('video').codecs.slice().sort((a, b) => rank(a) - rank(b)));
+    // H.265 when both have it (shared/screencodec.js), then H.264 High, Main, Baseline: better quality per
+    // bit, in hardware. Everything else stays as a fallback.
+    tr.setCodecPreferences(window.TwinDeskScreenCodec.order(RTCRtpSender.getCapabilities('video').codecs, m.codec)); // the Encoder setting
     pc.onicecandidate = (e) => e.candidate && alive(me) && api.send({ t: T.RTC2_ICE, session: me.session, candidate: e.candidate.toJSON() });
     pc.onconnectionstatechange = () => alive(me) && report(me, pc.connectionState === 'connected' ? 'live' : pc.connectionState);
 
@@ -182,6 +178,7 @@ async function onAnswer(m) {
   if (!me || !me.pc || m.session !== me.session) return;
   try {
     await me.pc.setRemoteDescription({ type: 'answer', sdp: withOpus(withBitrate(m.sdp, me.mbps)) });
+    if (window.TwinDeskScreenCodec) console.log(`[sender] sending ${window.TwinDeskScreenCodec.negotiated(m.sdp) || 'no video'} (Encoder: ${me.codec || 'h264'})`);
     for (const c of me.pending.splice(0)) await me.pc.addIceCandidate(c).catch(() => {});
     me.pending = null;
   } catch (e) {

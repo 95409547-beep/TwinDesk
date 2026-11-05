@@ -27,6 +27,7 @@ const clamp = (lo, hi, dflt) => (v) => {
   return Number.isFinite(n) ? Math.max(lo, Math.min(hi, n)) : dflt;
 };
 const oneOf = (list, dflt) => (v) => (list.includes(v) ? v : dflt);
+const devId = (v) => (typeof v === 'string' ? v.slice(0, 200) : ''); // an audio device's id (shared/mic.js)
 // A global shortcut: at least Control, Option or Command, plus one key (Electron accelerator).
 const KEY = /^(?:(?:Control|Alt|Shift|Command)\+){1,4}(?:[A-Z0-9]|F(?:[1-9]|1[0-9]|2[0-4])|Space|Tab|Backspace|Delete|Enter|Up|Down|Left|Right|[`\-=[\];',./\\])$/;
 const accel = (dflt) => (v) => (typeof v === 'string' && KEY.test(v) && /Control|Alt|Command/.test(v) ? v : dflt);
@@ -36,21 +37,21 @@ const SCHEMA = {
   virtual: { enabled: bool, width: (v) => Math.round(clamp(640, 3840, 1920)(v)), height: (v) => Math.round(clamp(480, 2160, 1080)(v)), hiDPI: bool, hz: oneOf([30, 60], 60) },
   kvm: {
     pcSide: oneOf(P.SIDES, 'right'), mouse: bool, keyboard: bool, driveOther: bool, beDriven: bool,
-    resistancePx: (v) => Math.round(clamp(0, 400, 120)(v)), speed: clamp(0.25, 4, 1), reverseScroll: bool, hotkeySwitch: bool, linked: bool, gestures: bool, ble: bool,
+    resistancePx: (v) => Math.round(clamp(0, 400, 120)(v)), speed: clamp(0.25, 4, 1), reverseScroll: bool, hotkeySwitch: bool, linked: bool, gestures: bool, ble: bool, syncPads: bool, shakeHome: bool,
   },
   keys: { swapCtrlCmd: bool, hotkey: oneOf(P.HOTKEYS, 'AltRight'), lockKeys: (v) => CL.validKeys(v, CL.DEFAULT_KEYS.mac) },
-  app: { openAtLogin: bool, keepAwake: bool, hud: bool },
+  app: { openAtLogin: bool, keepAwake: bool, hud: bool, inputProtocol: oneOf(['udp', 'tcp'], 'udp') },
   updates: { auto: bool, skipped: (v) => (typeof v === 'string' ? v.slice(0, 40) : '') },
-  audio: { send: bool, receive: bool, muteLocal: bool, volume: clamp(0, 1, 1), phoneMedia: bool },
+  audio: { send: bool, receive: bool, muteLocal: bool, volume: clamp(0, 1, 1), phoneMedia: bool, micSend: bool, micReceive: bool, micDevice: devId, micOut: devId }, // mic*: shared/mic.js
   terminal: { allowPc: bool, connectPc: bool },
   files: { acceptDrops: bool, reveal: bool, dragEdge: bool, shortcuts: bool, copyKeys: accel('Control+Alt+C'), pasteKeys: accel('Control+Alt+V') },
   notifs: { send: bool, receive: bool, hideText: bool },
   smb: { connectPc: bool },
-  apps: { offer: bool },
+  apps: { offer: bool, onVirtual: bool, moveWindows: bool, moveKey: oneOf(['ControlRight', 'ControlLeft', 'ShiftRight', 'ShiftLeft', 'AltRight', 'AltLeft', 'MetaRight', 'MetaLeft'], 'MetaRight') }, // moveWindows: Apps › Move windows (movewin.js)
   receive: { on: bool, fullScreen: bool, input: bool, framegen: bool },
-  sharing: { remote: bool, pace: oneOf(['fast', 'smooth'], 'fast') },
+  sharing: { remote: bool, pace: oneOf(['fast', 'smooth'], 'fast'), codec: oneOf(['h264', 'h265'], 'h264') },
   papps: { on: bool },
-  phone: { sound: bool, bitrateMbps: (v) => Math.round(clamp(2, 40, 8)(v)), maxSize: oneOf([0, 1920, 1600, 1280, 1024], 0), wallpaper: bool, input: oneOf(['adb', 'phone'], 'adb'), inputPicked: bool, enterSends: bool, arrowSwipe: bool },
+  phone: { sound: bool, bitrateMbps: (v) => Math.round(clamp(2, 40, 8)(v)), maxSize: oneOf([0, 1920, 1600, 1280, 1024], 0), wallpaper: bool, input: oneOf(['adb', 'phone'], 'adb'), inputPicked: bool, mirror: oneOf(['auto', 'adb', 'native'], 'auto'), soundVia: oneOf(['auto', 'adb', 'native'], 'auto'), enterSends: bool, arrowSwipe: bool },
   mount: { on: bool },
   clipboard: {
     enabled: bool, send: bool, receive: bool, mode: oneOf(['switch', 'instant'], 'instant'),
@@ -155,6 +156,7 @@ function setupIpc(ctx) {
     setPhone(partial) {
       setGroup('phone', partial);
       if (partial && 'input' in partial) ctx.phone.bridge.tellVia();
+      if (partial && ('input' in partial || 'mirror' in partial || 'soundVia' in partial)) ctx.phone.bridge.modesChanged(); // ADB or Native (shared/phonemodes.js)
       if (partial && ('enterSends' in partial || 'arrowSwipe' in partial) && ctx.phoneViews) ctx.phoneViews.applyOpts(); // the open phone windows light their buttons
     },
     phonePair(arg) {
@@ -180,6 +182,9 @@ function setupIpc(ctx) {
     phoneCloseView(id) {
       ctx.phoneViews.close(Number(id));
     },
+    phoneScreenAct(key) {
+      if (key === 'rotate' || key === 'screenPower') ctx.phoneViews.screenAct(key);
+    },
     // Right-click on a phone app: open it, or keep it in the Dock (phoneview.js).
     phoneAppMenu(arg) {
       if (!arg || typeof arg.id !== 'string' || !/^[\w.]{1,200}$/.test(arg.id)) return;
@@ -192,8 +197,12 @@ function setupIpc(ctx) {
     phoneInstallFull() {
       ctx.phone.bridge.installFull();
     },
+    // Phone › Apps › Install Apps: .apk files picked here, installed over ADB (shared/apkinstall.js).
+    phoneInstallApps() {
+      if (ctx.phone) return require('../shared/apkinstall.js').choose(ctx.phone.bridge, t);
+    },
     phoneRetry() {
-      ctx.phone.bridge._kick();
+      ctx.phone.bridge.retry(); // also Set Up, when nothing used wireless debugging
     },
     // The phone in Finder (phonedrive.js).
     phoneMount() {
@@ -407,6 +416,7 @@ function setupIpc(ctx) {
       setGroup('apps', partial);
       ctx.apps.applySettings();
       ctx.appSend.applySettings();
+      if (ctx.pcApps) ctx.pcApps.applySettings(); // Move windows: it takes moved windows too
     },
     setReceive(partial) {
       setGroup('receive', partial);
@@ -469,6 +479,9 @@ function setupIpc(ctx) {
     setAudio(partial) {
       setGroup('audio', partial);
       ctx.audio.applySettings();
+      const mic = ctx.loadMic && ctx.loadMic(); // Microphone: loaded when first on
+      if (mic) mic.apply();
+      if (partial && ('micReceive' in partial || 'micOut' in partial) && ctx.phone && ctx.phone.bridge && ctx.phone.bridge._sound) ctx.phone.bridge._sound(); // a phone's microphone, now
       // Loaded when first turned on; off, the loaded one stops.
       const np = partial && 'phoneMedia' in partial && ctx.loadNowPlaying ? ctx.loadNowPlaying() : null;
       if (np) np.apply();
@@ -516,6 +529,9 @@ function setupIpc(ctx) {
       if (m.a === 'take') r.take();
       else if (m.a === 'dismiss') r.dismiss();
       else if (m.a === 'push') r.push();
+      // ReZume › Allowed apps: one app let through or not, or forgotten (no app: the whole list).
+      else if (m.a === 'allow' && typeof m.app === 'string') r.allow(m.list, m.app, m.on === true);
+      else if (m.a === 'forget') r.forget(m.list, typeof m.app === 'string' ? m.app : '');
     },
     // Remote tab: the phone's Remote page here (shared/phone-remote.js).
     setRemote(m) {
@@ -598,15 +614,28 @@ function setupIpc(ctx) {
     },
     // A phone chat's notification answered here (its own Reply).
     notifReply(r) {
-      if (r && typeof r === 'object' && r.chat) return void (ctx.chats && ctx.chats.reply(String(r.chat), r.text)); // a chat app's conversation (shared/chats.js)
-      if (r && typeof r === 'object' && ctx.notifs && ctx.notifs.reply) ctx.notifs.reply(String(r.id || ''), r.text);
+      if (r && typeof r === 'object' && r.chat) return void (ctx.chats && ctx.chats.reply(String(r.chat), r.text, r.image)); // a chat app's conversation (shared/chats.js)
+      if (!r || typeof r !== 'object' || !ctx.notifs) return;
+      if (r.dismiss) return void ctx.notifs.dismiss(String(r.id || '')); // Overview's × (shared/notifacts.js)
+      if (Number.isInteger(r.act)) return void ctx.notifs.act(String(r.id || ''), r.act); // one of its buttons
+      if (ctx.notifs.reply) ctx.notifs.reply(String(r.id || ''), r.text);
     },
     // Connection › Wireless debugging › Pair with a QR code: on while shown.
     adbQr(on) {
       if (ctx.adbQr) ctx.adbQr(on === true);
     },
+    // General › Appearance: { theme } and/or { accent } ('' follows the system); local only.
+    setLook(o) {
+      if (!o || typeof o !== 'object') return;
+      const Look = require('../shared/look.js');
+      if (typeof o.theme === 'string') settings.ui.theme = Look.theme(o.theme);
+      if (typeof o.accent === 'string') settings.ui.accent = Look.accent(o.accent);
+      store.saveSettings(settings);
+      if (ctx.onLook) ctx.onLook();
+      ctx.pushState();
+    },
     setLanguage(language) {
-      if (!['', 'en', 'zh-CN'].includes(language) || settings.ui.language === language) return;
+      if ((language !== '' && !require('../shared/i18n.js').savedLanguage(language)) || settings.ui.language === language) return;
       settings.ui.language = language;
       save();
       if (ctx.onLanguage) ctx.onLanguage();

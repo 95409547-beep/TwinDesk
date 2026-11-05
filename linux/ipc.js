@@ -24,9 +24,13 @@ function setupIpc(ctx) {
   handle('getState', () => ctx.buildState());
   // A local UI preference: never synchronized to another device.
   handle('setLanguage', (language) => {
-    if (language !== 'en' && language !== 'zh-CN') return;
+    if (!require('../shared/i18n.js').savedLanguage(language)) return;
     change('ui', { language }, () => ctx.onLanguage());
   });
+  // General › Appearance: { theme } and/or { accent } ('' follows the system); local only.
+  handle('setLook', (o) => o && typeof o === 'object' && change('ui', {
+    ...(typeof o.theme === 'string' ? { theme: o.theme } : {}), ...(typeof o.accent === 'string' ? { accent: o.accent } : {}),
+  }, () => ctx.onLook && ctx.onLook()));
   // Calls, Messages and Photos (shared/phonehub.js, loaded the first time it's used).
   handle('hub', (r) => ctx.hub().act(r));
 
@@ -58,7 +62,9 @@ function setupIpc(ctx) {
   handle('refreshFound', () => discovery.refresh());
   handle('deviceDo', (c) => c && typeof c === 'object' && ctx.devctl() && ctx.devctl().do(c)); // Overview: ring, lock, quick settings… (shared/devctl.js)
   // A chat's answer (Messages' chat apps: shared/chats.js) or a notification's.
-  handle('notifReply', (r) => r && typeof r === 'object' && (r.chat ? !!(ctx.chats && ctx.chats() && ctx.chats().reply(String(r.chat), r.text)) : ctx.notifs && ctx.notifs.reply && ctx.notifs.reply(String(r.id || ''), r.text))); // a phone chat's Reply, typed here
+  handle('notifReply', (r) => r && typeof r === 'object' && (r.chat ? !!(ctx.chats && ctx.chats() && ctx.chats().reply(String(r.chat), r.text, r.image))
+    : !ctx.notifs ? false : r.dismiss ? ctx.notifs.dismiss(String(r.id || '')) : Number.isInteger(r.act) ? ctx.notifs.act(String(r.id || ''), r.act) // Overview's × and buttons (shared/notifacts.js)
+      : ctx.notifs.reply && ctx.notifs.reply(String(r.id || ''), r.text))); // a phone chat's Reply, typed here
   handle('qrPair', () => ctx.qrPair()); // Connection: the phone pairing QR code's link
   handle('adbQr', (on) => ctx.adbQr(on === true)); // wireless debugging: pair with a QR code
   handle('copyText', (text) => typeof text === 'string' && text.length < 1000 && clipboard.writeText(text));
@@ -112,8 +118,12 @@ function setupIpc(ctx) {
   handle('setChats', (on) => { change('ui', { chats: on === true }); if (ctx.chats && ctx.chats()) ctx.chats().sync(); }); // Messages: WhatsApp, Telegram and Instagram there too
   handle('setOverview', (o) => o && typeof o === 'object' && change('ui', { overview: { ...settings.ui.overview, ...o } })); // General › Overview // invalid names fall back in normalize()
   handle('setMulti', (on) => require('./multi').set(on === true)); // Multi-device: TwinDesk restarts
+  handle('relaunch', () => { app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--hidden') }); app.quit(); }); // General › Advanced: a setting read at startup
   handle('setAudio', (partial) => change('audio', partial, () => {
     sound.apply();
+    const mic = ctx.loadMic && ctx.loadMic(); // Microphone: loaded when first on
+    if (mic) mic.apply();
+    if (partial && ('micReceive' in partial || 'micOut' in partial) && ctx.phone && ctx.phone.bridge && ctx.phone.bridge._sound) ctx.phone.bridge._sound(); // a phone's microphone, now
     // Loaded when first turned on (applied then); off, the loaded one stops.
     if (partial && 'phoneMedia' in partial && ctx.nowPlaying) ctx.nowPlaying.apply(); else if (partial && 'phoneMedia' in partial) ctx.loadNowPlaying();
     if (partial && 'phoneBt' in partial && ctx.btAudio) ctx.btAudio.apply(); else if (partial && 'phoneBt' in partial) ctx.loadBtAudio();
@@ -144,6 +154,9 @@ function setupIpc(ctx) {
     if (m.a === 'take') h.take();
     else if (m.a === 'dismiss') h.dismiss();
     else if (m.a === 'push') h.push();
+    // ReZume › Allowed apps: one app let through or not, or forgotten (no app: the whole list).
+    else if (m.a === 'allow' && typeof m.app === 'string') h.allow(m.list, m.app, m.on === true);
+    else if (m.a === 'forget') h.forget(m.list, typeof m.app === 'string' ? m.app : '');
   });
   // Remote tab: the phone's Remote page here (shared/phone-remote.js).
   handle('setRemote', (m) => {
@@ -168,7 +181,7 @@ function setupIpc(ctx) {
   handle('launchApp', (id) => { if (!macPeer()) peerApps.launch(id); else { apps.launch(id); screen.ensureHidden(); } });
   handle('pinApp', (id) => typeof id === 'string' && macPeer() && apps.pin(id, true)); // a launcher in the app menu
   handle('setMacApps', (partial) => change('macApps', partial, () => peerApps.apply()));
-  handle('setPcApps', (partial) => change('pcApps', partial, () => { pcApps.apply(); pcApps.input.release(); }));
+  handle('setPcApps', (partial) => change('pcApps', partial, () => { pcApps.apply(); pcApps.input.release(); if (peerApps) peerApps.apply(); }));
   handle('setFiles', (partial) => {
     // shareOn/shareFolder only change through share()/unshare()
     const p = partial && typeof partial === 'object' ? { dropToMac: partial.dropToMac, mountMac: partial.mountMac, acceptFromMac: partial.acceptFromMac, edgeDrag: partial.edgeDrag,
@@ -222,6 +235,7 @@ function setupIpc(ctx) {
   phone('disconnectPhone', () => ctx.phone.disconnect());
   handle('setPhone', (partial) => change('phone', partial, () => {
     if (partial && 'input' in partial && ctx.phone) ctx.phone.bridge.tellVia();
+    if (partial && ('input' in partial || 'mirror' in partial || 'soundVia' in partial) && ctx.phone) ctx.phone.bridge.modesChanged(); // ADB or Native (shared/phonemodes.js)
     if (partial && ('enterSends' in partial || 'arrowSwipe' in partial) && ctx.phoneViews) ctx.phoneViews.applyOpts();
   }));
   // The phone as a drive (phonedrive.js). The Mount page's switch: off unmounts and stops
@@ -243,8 +257,10 @@ function setupIpc(ctx) {
   phone('phoneListCameras', () => ctx.phone && ctx.phone.bridge ? ctx.phone.bridge.listCameras() : []);
   phone('phoneOpenApp', (arg) => arg && typeof arg.id === 'string' && ctx.phoneViews.openApp(arg.id.slice(0, 200), String(arg.name || '').slice(0, 100)));
   phone('phoneCloseView', (id) => ctx.phoneViews.close(Number(id)));
-  phone('phoneRetry', () => ctx.phone.bridge._kick());
+  phone('phoneScreenAct', (key) => (key === 'rotate' || key === 'screenPower') && ctx.phoneViews.screenAct(key));
+  phone('phoneRetry', () => ctx.phone.bridge.retry()); // also Set Up, when nothing used wireless debugging
   phone('phoneInstallFull', () => ctx.phone.bridge.installFull());
+  phone('phoneInstallApps', () => require('../shared/apkinstall.js').choose(ctx.phone.bridge, (s) => (ctx.t ? ctx.t(s) : s))); // Phone › Apps › Install Apps
   handle('phoneAssets', () => (ctx.phone ? ctx.phone.assetsView() : { wallpaper: '', apps: [] }));
   handle('skipSetup', () => change('setup', { skipped: ctx.buildState().setup.missing, done: true }));
   handle('checkFirewall', () => ctx.checkFirewall());

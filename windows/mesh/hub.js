@@ -75,7 +75,7 @@ class Hub extends EventEmitter {
     server.on('listenError', (err) => {
       this._host = {
         on: false,
-        error: err.code === 'EADDRINUSE' ? 'Port ' + P.PORT + ' is in use (another copy of TwinDesk?)' : err.code || err.message,
+        error: err.code === 'EADDRINUSE' || err.code === 'EACCES' ? 'Port ' + P.PORT + ' is in use by another program (another copy of TwinDesk, or one in WSL). Trying again…' : err.code || err.message,
       };
       this._change();
     });
@@ -136,6 +136,16 @@ class Hub extends EventEmitter {
     if (!s || !s.connected) return false;
     this._select(id);
     return true;
+  }
+
+  // Mark a link busy (driving, driven, or selected) on whichever end holds it: a host we dial is in
+  // `links`, one that dials us is in `server`. A busy link pings every PING_MS; the others every
+  // IDLE_PING_MS (docs/mesh.md "Keep-alive"). The Kvm calls this on every mode change.
+  setBusy(id, flag) {
+    if (!id) return;
+    const f = flag == null ? null : !!flag; // null clears the flag
+    this.links.setBusy(id, f);
+    if (this.server) this.server.setBusy(id, f);
   }
 
   // ---- what the UI shows ----

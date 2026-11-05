@@ -9,7 +9,7 @@ UI.setup = (() => {
   const t = (...args) => I18n.t(...args);
   const language = UI.select([
     { value: '', label: t('Follow system language') },
-    { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' },
+    { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' }, { value: 'ru', label: 'Русский' }, { value: 'tr', label: 'Türkçe' },
   ], (v) => api.setLanguage(v));
   const ITEMS = [
     { kind: 'screen', label: t('Screen Recording'), note: t('To share this Mac’s screen'), missing: (s) => s.permissions.screen !== 'granted' },

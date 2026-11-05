@@ -82,6 +82,9 @@ object Proto {
         const val PHONE_SOUND_WANT = "phone.sound.want"
         const val PHONE_SOUND = "phone.sound"
         const val PHONE_SOUND_STATE = "phone.sound.state"
+        // This phone's screen without wireless debugging (Mirror.kt; shared/nativescreen.js there)
+        const val PHONE_MIRROR_WANT = "phone.mirror.want"
+        const val PHONE_MIRROR_STATE = "phone.mirror.state"
         const val PHONE_MEDIA = "phone.media"
         const val PHONE_MEDIA_WANT = "phone.media.want"
         const val PHONE_MEDIA_CTL = "phone.media.ctl"
@@ -130,6 +133,7 @@ object Proto {
         const val MEDIA_THUMB = "media.thumb"
         const val MEDIA_VIEW = "media.view"
         const val MEDIA_SAVE = "media.save"
+        const val MEDIA_DELETE = "media.delete"
         const val FS_LIST = "fs.list"
         const val FS_DO = "fs.do"
         const val FS_DONE = "fs.done"

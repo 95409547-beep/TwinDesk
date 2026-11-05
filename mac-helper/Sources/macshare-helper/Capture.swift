@@ -64,6 +64,7 @@ final class Capture {
   var gestures = true // Send trackpad gestures (k.ge) while capturing
   private var dock: (motion: Int64, progress: Double)? = nil // the dock swipe in progress
   private var pinnedAt: CGPoint?            // where the pointer stays (hidden) while it is on the other computer
+  private var leftAt: CGPoint?              // where it left (pinnedAt moves with our own injected pointer)
   private var lastCommand = 0.0
   private var deadman: Timer?
 #if MULTI
@@ -78,6 +79,18 @@ final class Capture {
   private var returnSide: String?
 #endif
   private var returnResistance = 120.0
+  // Driven (armReturn on): the first input from this Mac's own mouse or trackpad takes the Mac back
+  // (`local`): main sends the input home, so the driver gets its own pointer again where it left
+  // and the two pointers stay apart. A move counts once it went `localPx` (not a resting palm), and
+  // nothing counts in the first `localGrace` after the watch began.
+  private var localWatch = false
+  private var localSince = 0.0, localAt = 0.0, localAcc = 0.0
+  private let localPx = 6.0, localGrace = 0.3
+  // kvmConfig takeBack (off with Sync touchpads): our own input never takes the Mac back, the return
+  // watch stays on and either mouse crosses.
+  var takeBack = true {
+    didSet { if !takeBack { localWatch = false } }
+  }
   // Where along the side the other computer's monitors touch ours (shared/kvm-geom.js zones, 0–1 of
   // the bounding box, as `offset`): the edge and the way back only cross inside them. nil: anywhere.
   var edgeZones: [ClosedRange<Double>]?
@@ -115,6 +128,7 @@ final class Capture {
                                 .otherMouseDragged, .scrollWheel, .keyDown, .keyUp, .flagsChanged]
     var mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
     for raw in Capture.gestureTypes { mask |= CGEventMask(1) << CGEventMask(raw) } // trackpad gestures
+    mask |= CGEventMask(1) << CGEventMask(Capture.systemDefined) // volume, brightness, media keys
     guard let t = CGEvent.tapCreate(tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap,
                                     eventsOfInterest: mask, callback: tapCallback, userInfo: nil) else {
       log("event tap failed: Accessibility / Input Monitoring not granted?")
@@ -179,6 +193,7 @@ final class Capture {
     if mouse {
       CGAssociateMouseAndMouseCursorPosition(0) // pointer frozen, deltas still arrive
       pinnedAt = CGEvent(source: nil)?.location
+      leftAt = pinnedAt
       // Hide it once the leaving animation and a drag hand-off at the edge had their moment.
       DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) { [weak self] in
         if let self = self, self.capturing, self.capMouse { PointerVisibility.hide() }
@@ -200,18 +215,32 @@ final class Capture {
     deadman?.invalidate()
     deadman = nil
     if capMouse { CGAssociateMouseAndMouseCursorPosition(1) }
+    var moved: CGPoint? = nil // our injected pointer moved the pin: where it left
+    if let p = pinnedAt, let l = leftAt, abs(p.x - l.x) > 0.5 || abs(p.y - l.y) > 0.5 { moved = l }
     pinnedAt = nil
+    leftAt = nil
     PointerVisibility.show()
     if let side = side, let offset = offset {
       let p = Screens.edgePoint(side: side, offset: offset)
       warp(p)
       Flash.shared.arrive(at: p, side: side) // back on this Mac
+    } else if let back = moved {
+      warp(back) // our injected pointer moved it (a moved window used over there): back where it left
+      Flash.shared.arrive(at: back, side: nil)
     } else {
       Flash.shared.arrive(at: CGEvent(source: nil)?.location ?? .zero, side: nil)
     }
     swallowUps.formUnion(remoteDown)
     remoteDown.removeAll()
     arrived(side: side)
+  }
+
+  /// Our own injected pointer (a window moved to the other computer, used from its copy there while
+  /// this Mac drives it) put the hidden pointer at `p`: it stays there, not warped back to the pin.
+  /// Warping back fought every injected move, and each warp held the mouse still for a moment, so
+  /// this Mac's pointer couldn't get into that copy.
+  func injectedPointer(at p: CGPoint) {
+    if capturing && capMouse && pinnedAt != nil { pinnedAt = p }
   }
 
   /// The pointer came to this computer (back home, or placed by the driver) through `side`, or by
@@ -229,11 +258,22 @@ final class Capture {
   }
 
   /// The sides where an injected move must stop at the edge rather than jump onto a display past it.
+  /// Read for every injected move: the same array until the side changes, never a new one per move.
+#if !MULTI
+  private var stopsSide: String?
+  private var stopsKnown = false
+  private var stopsList: [String] = []
+#endif
   var returnStops: [String] {
 #if MULTI
     return returnSides
 #else
-    return returnSide.map { [$0] } ?? []
+    if !stopsKnown || stopsSide != returnSide {
+      stopsKnown = true
+      stopsSide = returnSide
+      stopsList = returnSide.map { [$0] } ?? []
+    }
+    return stopsList
 #endif
   }
 
@@ -244,6 +284,7 @@ final class Capture {
 
 #if MULTI
   func armReturn(on: Bool, sides: [String], resistance: Double) {
+    watchLocal(on)
     returnSides = on ? sides : []
     returnResistance = resistance
     retBy.removeAll()
@@ -266,6 +307,8 @@ final class Capture {
     Flash.shared.leave(at: p, side: found.side)
     var out: [String: Any] = ["event": "return", "side": found.side, "offset": found.offset]
     if let d = returnDrag(at: p) { out["drag"] = d }
+    let moving = WindowGrab.shared.take(keepUp: false)
+    if moving != 0 { out["moving"] = moving; out["movingPid"] = WindowGrab.shared.pid } // a grabbed window goes along
     emit(out)
   }
 
@@ -282,6 +325,7 @@ final class Capture {
   }
 #else
   func armReturn(on: Bool, side: String, resistance: Double) {
+    watchLocal(on)
     returnSide = on ? side : nil
     returnResistance = resistance
     ret.push = 0
@@ -295,9 +339,42 @@ final class Capture {
     Flash.shared.leave(at: p, side: side)
     var out: [String: Any] = ["event": "return", "offset": off]
     if let d = returnDrag(at: p) { out["drag"] = d }
+    let moving = WindowGrab.shared.take(keepUp: false)
+    if moving != 0 { out["moving"] = moving; out["movingPid"] = WindowGrab.shared.pid } // a grabbed window goes along
     emit(out)
   }
 #endif
+
+  private func watchLocal(_ on: Bool) {
+    localWatch = on && takeBack
+    localSince = now()
+    localAcc = 0
+  }
+
+  /// This Mac's own mouse or trackpad while driven (injected events never get here): true once it
+  /// takes the Mac back. The return watch stops with it, so this same motion can't send a `return`.
+  private func noteLocal(_ type: CGEventType, _ dx: Double, _ dy: Double) -> Bool {
+    guard localWatch, !capturing else { return false }
+    let down = type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
+    let moved = type == .mouseMoved || type == .leftMouseDragged || type == .rightMouseDragged || type == .otherMouseDragged
+    guard down || moved else { return false }
+    let t = now()
+    if t - localSince < localGrace { return false }
+    if moved {
+      if t - localAt > 0.3 { localAcc = 0 }
+      localAt = t
+      localAcc += abs(dx) + abs(dy)
+      if localAcc < localPx { return false }
+    }
+    localWatch = false
+#if MULTI
+    returnSides = []
+#else
+    returnSide = nil
+#endif
+    emit(["event": "local"])
+    return true
+  }
 
   /// The driver's left button still held in a file drag as the pointer goes back: it carries on
   /// there. Our drag in from it (DragIn) comes back (`back`: main cancels it here); a Finder drag
@@ -362,6 +439,7 @@ final class Capture {
     }
     if event.getIntegerValueField(.eventSourceUserData) == injectedMark { return pass }
     if Capture.gestureTypes.contains(type.rawValue) { return onGesture(event) ? nil : pass }
+    if type.rawValue == Capture.systemDefined { return onSystemKey(event) ? nil : pass }
     switch type {
     case .flagsChanged: return onFlags(event) ? nil : pass
     case .keyDown, .keyUp: return onKey(event, down: type == .keyDown) ? nil : pass
@@ -370,7 +448,13 @@ final class Capture {
   }
 
   private func ev(_ fields: [String: Any]) {
+#if TDFAST
+    var f = fields
+    NativeLane.shared.fence(&f) // a click, key, wheel or gesture: its event number and fence (Lane.swift)
+    emit(["event": "ev", "ev": f])
+#else
     emit(["event": "ev", "ev": fields])
+#endif
   }
 
   /// Returns true to swallow.
@@ -431,6 +515,7 @@ final class Capture {
   // gesture, 29 gesture (pinch, smart zoom, swipe), 30 dock control (the system's 3/4-finger swipes
   // and pinches: Mission Control, Spaces, App Exposé, Launchpad, Show Desktop), 31 swipe, 32 smart zoom.
   static let gestureTypes: Set<UInt32> = [18, 19, 20, 29, 30, 31, 32]
+  static let systemDefined: UInt32 = 14 // NX_SYSDEFINED
   // Private gesture fields (as WindowServer fills them for dock swipes).
   private static let fHidType = CGEventField(rawValue: 110)!, fMotion = CGEventField(rawValue: 123)!,
     fProgress = CGEventField(rawValue: 124)!, fPhase = CGEventField(rawValue: 132)!, fExit = CGEventField(rawValue: 129)!
@@ -514,8 +599,30 @@ final class Capture {
     return false
   }
 
+  // Volume, brightness and media keys (NX_SYSDEFINED, subtype 8): to the other computer while the
+  // keyboard is there, as k.kd / k.ku with their codes (KeyCodes.system). Anything else stays here.
+  private func onSystemKey(_ e: CGEvent) -> Bool {
+    guard capturing && capKeyboard, let ns = NSEvent(cgEvent: e), ns.subtype.rawValue == 8 else { return false }
+    let d = ns.data1
+    guard let code = KeyCodes.fromSystem[(d & 0xFFFF0000) >> 16] else { return false }
+    let state = (d & 0xFF00) >> 8 // 0x0A down, 0x0B up
+    guard state == 0x0A || state == 0x0B else { return false }
+    hkStage = 0
+    ev(["t": state == 0x0A ? "k.kd" : "k.ku", "code": code])
+    return true
+  }
+
   private func onMouse(_ type: CGEventType, _ e: CGEvent) -> Bool {
+    var type = type
     let dx = e.getDoubleValueField(.mouseEventDeltaX), dy = e.getDoubleValueField(.mouseEventDeltaY)
+    // Move windows (Grab.swift): the move key and a click grab a window, never while capturing.
+    let grab = WindowGrab.shared
+    if type == .leftMouseUp && grab.upPending { _ = grab.up(); return true }
+    if !capturing {
+      if type == .leftMouseDown && grab.tryGrab(at: e.location, flags: e.flags.rawValue) { return true }
+      if grab.grabbing && type == .leftMouseDragged { e.type = .mouseMoved; type = .mouseMoved } // the system never saw the press
+      if grab.grabbing && type == .mouseMoved { grab.move(to: e.location) }
+    }
     let isDown = type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
     let isUp = type == .leftMouseUp || type == .rightMouseUp || type == .otherMouseUp
     if isDown {
@@ -544,11 +651,17 @@ final class Capture {
               "dy": -e.getDoubleValueField(.scrollWheelEventFixedPtDeltaAxis1)])
         }
       } else if dx != 0 || dy != 0 {
+#if TDFAST
+        if let m = NativeLane.shared.move(dx, dy) { ev(m) } // nil: it went on the input lane (Lane.swift)
+#else
         ev(["t": "k.mm", "dx": dx, "dy": dy])
+#endif
+        Shake.feed(dx, dy) // after it went: shaken, the pointer comes home (Shake.swift)
       }
       return true
     }
 
+    if noteLocal(type, dx, dy) { return false } // ours again: the event goes on here as it is
     if type == .leftMouseDown { dragPbCount = NSPasteboard(name: .drag).changeCount }
     // A file drag pushed through the crossing edge carries the files over.
 #if MULTI
@@ -582,19 +695,25 @@ final class Capture {
       // The system's own button state: counting downs and ups here stuck at 1 when the tap missed
       // an up (disabled by a timeout meanwhile), and nothing crossed again until a restart.
 #if MULTI
-      if !capturing, edgeEnabled, NSEvent.pressedMouseButtons == 0,
+      if !capturing, edgeEnabled, NSEvent.pressedMouseButtons == 0 || grab.grabbing,
          let hit = edgeCrossing(e.location, dx: dx, dy: dy) {
         startCapture(mouse: true, keyboard: cfgKeyboard) // capture first, so no motion leaks
         Flash.shared.leave(at: e.location, side: hit.side)
-        emit(["event": "edge", "side": hit.side, "offset": hit.offset])
+        var out: [String: Any] = ["event": "edge", "side": hit.side, "offset": hit.offset]
+        let moving = grab.take(keepUp: true)
+        if moving != 0 { out["moving"] = moving; out["movingPid"] = WindowGrab.shared.pid } // a grabbed window goes along
+        emit(out)
         return true
       }
 #else
-      if !capturing, edgeEnabled, NSEvent.pressedMouseButtons == 0,
+      if !capturing, edgeEnabled, NSEvent.pressedMouseButtons == 0 || grab.grabbing,
          let off = push(&edge, e.location, dx, dy, side, resistance, edgeZones) {
         startCapture(mouse: true, keyboard: cfgKeyboard) // capture first, so no motion leaks
         Flash.shared.leave(at: e.location, side: side)
-        emit(["event": "edge", "offset": off])
+        var out: [String: Any] = ["event": "edge", "offset": off]
+        let moving = grab.take(keepUp: true)
+        if moving != 0 { out["moving"] = moving; out["movingPid"] = WindowGrab.shared.pid } // a grabbed window goes along
+        emit(out)
         return true
       }
 #endif

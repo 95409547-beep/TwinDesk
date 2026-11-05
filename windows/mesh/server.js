@@ -24,6 +24,7 @@ const https = require('https');
 const { EventEmitter } = require('events');
 const { WebSocketServer } = require('ws');
 const P = require('../../shared/protocol.js');
+const { LanePool } = require('../../shared/inputlane.js');
 
 const ICE_OFFERS = new Set([P.T.RTC_OFFER, P.T.AUDIO_OFFER]);
 const isLoopback = (a) => a === '127.0.0.1' || a === '::1';
@@ -39,6 +40,7 @@ class Server extends EventEmitter {
   //   now () -> ms (tests inject a fake clock); tick (false: no timer, call liveness() yourself).
   constructor({ pfx, passphrase, port, now, tick = true } = {}) {
     super();
+    this.ilPool = new LanePool(); // the input lanes of the clients (shared/inputlane.js)
     this.clients = new Map(); // deviceId -> ctx, authenticated and connected
     this.sockets = new Set(); // every ctx, authed or not
     this.primaryId = null; // setPrimary()
@@ -52,8 +54,16 @@ class Server extends EventEmitter {
     this.wss = new WebSocketServer({ server: this.https, maxPayload: P.MAX_PAYLOAD });
     this.wss.on('connection', (ws, req) => this._onConnection(ws, req));
     this.wss.on('error', () => {}); // ws repeats the server's errors here; listenError below reports them
-    this.https.on('error', (err) => this.emit('listenError', err)); // e.g. EADDRINUSE: another copy listens
     this.port = port !== undefined ? port : LISTEN_PORT;
+    // The port taken (another copy, or a program in WSL with mirrored networking, #124): tried again
+    // every 10 s, so TwinDesk starts listening once it's free, without a restart.
+    this.https.on('error', (err) => {
+      this.emit('listenError', err);
+      if ((err.code === 'EADDRINUSE' || err.code === 'EACCES') && !this.https.listening && !this.closed) {
+        clearTimeout(this.listenRetry);
+        this.listenRetry = setTimeout(() => !this.closed && !this.https.listening && this.https.listen(this.port, '0.0.0.0'), 10000);
+      }
+    });
     this.https.listen(this.port, '0.0.0.0', () => {
       this.port = this.https.address().port;
       this.emit('listening');
@@ -86,7 +96,8 @@ class Server extends EventEmitter {
   // A busy client (driving, driven, or selected) is pinged every PING_MS; the others every
   // IDLE_PING_MS. Default: the primary client is busy.
   setBusy(deviceId, flag) {
-    this.busyFlags.set(deviceId, !!flag);
+    if (flag == null) this.busyFlags.delete(deviceId); // null: back to the default (the primary client)
+    else this.busyFlags.set(deviceId, !!flag);
   }
 
   _isBusy(ctx) {
@@ -138,6 +149,7 @@ class Server extends EventEmitter {
     }
     this.sockets.delete(ctx);
     if (ctx.authed && this.clients.get(ctx.deviceId) === ctx) this.clients.delete(ctx.deviceId);
+    this.ilPool.drop(ctx); // its input lane (shared/inputlane.js)
     this.emit('closed', ctx);
   }
 
@@ -282,7 +294,9 @@ class Server extends EventEmitter {
     ctx.ice = this.iceFor ? this.iceFor(ctx) : null; // a phone through adb reverse: the relay's RTCConfiguration
     ctx.resumeKey = P.randomHex(16);
     this.clients.set(deviceId, ctx);
-    this.send(ctx, { ...welcome, resume: ctx.resumeKey });
+    // The input lane (shared/inputlane.js): a lane of its own, when its hello asked, over the network only.
+    const il = ctx.ilWanted && ctx.transport !== 'ble' ? this.ilPool.offer(ctx, ctx.ilWanted, ctx.address) : null;
+    this.send(ctx, { ...welcome, resume: ctx.resumeKey, ...(il ? { il } : {}) });
     this.emit('client', ctx);
   }
 
@@ -328,7 +342,10 @@ class Server extends EventEmitter {
   }
 
   close() {
+    this.closed = true;
+    clearTimeout(this.listenRetry);
     clearInterval(this.tick);
+    this.ilPool.close();
     clearTimeout(this.graceTimer);
     for (const ctx of this.sockets) {
       if (ctx.alt) ctx.alt.terminate();

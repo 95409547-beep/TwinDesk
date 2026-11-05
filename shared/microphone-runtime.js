@@ -6,7 +6,8 @@ const { normalize } = require('./microphone-settings');
 function attach({ link, route, settings, platform, helper, save, changed, mesh }) {
   const mediaOwners = new WeakMap();
   const createWindow = (o, owner) => {
-    const w = new BrowserWindow(o);
+    // Permission handlers apply to a whole session. Keep upstream camera/audio windows outside it.
+    const w = new BrowserWindow({ ...o, webPreferences: { ...o.webPreferences, partition: 'persist:twindesk-shared-microphone' } });
     mediaOwners.set(w.webContents, owner);
     w.webContents.session.setPermissionCheckHandler((wc, permission, origin, details) => {
       const cfg = mediaOwners.get(wc)?.cfg;

@@ -23,7 +23,8 @@ const isLoopback = (a) => a === '127.0.0.1' || a === '::1';
 const LISTEN_PORT = Number(process.env.MACSHARE_DEV_PORT) || P.PORT;
 
 class Server extends EventEmitter {
-  constructor({ keyPem, certPem }) {
+  // opts: hold — don't listen yet, listen() does (main.js: the first session waits for the input lane).
+  constructor({ keyPem, certPem }, opts = {}) {
     super();
     this.current = null; // ctx of the authenticated client
     this.phoneGrace = null; // {id, until}: a phone's session just dropped, it may come back (P.PHONE_GRACE_MS)
@@ -36,8 +37,14 @@ class Server extends EventEmitter {
     this.wss.on('error', () => {}); // ws repeats the server's errors here; listenError below reports them
     this.https.on('error', (err) => this.emit('listenError', err));
     this.port = LISTEN_PORT;
-    this.https.listen(LISTEN_PORT, '0.0.0.0', () => this.emit('listening'));
+    if (!opts.hold) this.listen();
     this.tick = setInterval(() => this._liveness(), P.PING_MS);
+  }
+
+  listen() {
+    if (this.https.listening || this._listenAsked) return;
+    this._listenAsked = true;
+    this.https.listen(LISTEN_PORT, '0.0.0.0', () => this.emit('listening'));
   }
 
   _onConnection(ws, req) {
@@ -212,8 +219,12 @@ class Server extends EventEmitter {
     ctx.resumeKey = P.randomHex(16);
     // Fast files (shared/fastfile.js): when its hello asked and this app serves them, a token for them.
     ctx.fx = ctx.fxWanted && this.fxOn ? P.randomHex(16) : '';
+    // … and fast files v2 (shared/fx2.js) when it asked too and our files engine is listening.
+    ctx.fx2 = ctx.fx && ctx.fx2Wanted && this.fx2Port ? this.fx2Port() || 0 : 0;
     this.current = ctx;
-    this.send(ctx, { ...welcome, resume: ctx.resumeKey, ...(ctx.fx ? { fx: ctx.fx } : {}) });
+    // The input lane (shared/inputlane.js): when its hello asked, over the network only.
+    const il = ctx.ilWanted && ctx.transport === 'ip' && this.ilOffer ? this.ilOffer(ctx) : null;
+    this.send(ctx, { ...welcome, resume: ctx.resumeKey, ...(ctx.fx ? { fx: ctx.fx } : {}), ...(ctx.fx2 ? { fx2: { port: ctx.fx2 } } : {}), ...(il ? { il } : {}) });
     this.emit('client', ctx);
   }
 

@@ -5,7 +5,7 @@ const { EventEmitter } = require('events');
 const { randomUUID } = require('crypto');
 const path = require('path');
 const { normalize } = require('./microphone-settings');
-const TYPES = ['mic.policy', 'mic.offer', 'mic.answer', 'mic.ice', 'mic.stop', 'mic.pulse', 'mic.ready', 'mic.ended'];
+const TYPES = ['ptt-mic.policy', 'ptt-mic.offer', 'ptt-mic.answer', 'ptt-mic.ice', 'ptt-mic.stop', 'ptt-mic.pulse', 'ptt-mic.ready', 'ptt-mic.ended'];
 const validId = (v) => typeof v === 'string' && /^[a-f0-9-]{36}$/.test(v);
 
 class Microphone extends EventEmitter {
@@ -48,7 +48,7 @@ class Microphone extends EventEmitter {
   send(m) { if (this.connected) this.link.send(m); }
   policy() {
     this.lastPolicy = this.now();
-    if (this.paired) this.link.send({ t: 'mic.policy', version: 2, epoch: this.epoch, accept: this.accepting, mode: this.cfg.mode });
+    if (this.paired) this.link.send({ t: 'ptt-mic.policy', version: 2, epoch: this.epoch, accept: this.accepting, mode: this.cfg.mode });
   }
   reset() {
     this.stop('Connection changed');
@@ -89,14 +89,14 @@ class Microphone extends EventEmitter {
       const s = this.tx;
       this.finished.add(s.id); this.tx = null;
       if (s.offered && this.peer) this.awaitingEnd = { id: s.id, at: this.now(), localEpoch: this.epoch, peerEpoch: this.peer.epoch };
-      this.send({ t: 'mic.stop', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch, drain });
+      this.send({ t: 'ptt-mic.stop', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch, drain });
       this.command({ action: 'stop' });
     }
     const s = this.rx;
     if (s && !s.ending) {
       s.ending = true; s.status = 'ending';
       this.policy();
-      this.send({ t: 'mic.stop', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
+      this.send({ t: 'ptt-mic.stop', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
       if (drain && s.mediaReady) {
         this.command({ action: 'finish', id: s.id });
         s.flushDeadline = setTimeout(() => this.finishReceive(s), 600);
@@ -111,17 +111,17 @@ class Microphone extends EventEmitter {
     this.command({ action: 'stop' });
     this.rx = null; this.finished.add(s.id);
     if (this.epoch === s.localEpoch && this.peer && this.peer.epoch === s.peerEpoch)
-      this.send({ t: 'mic.ended', id: s.id, epoch: s.localEpoch, target: s.peerEpoch, ready: true });
+      this.send({ t: 'ptt-mic.ended', id: s.id, epoch: s.localEpoch, target: s.peerEpoch, ready: true });
     this.policy(); this.emit('change');
   }
   receivePrepared(s) {
     if (this.rx !== s || s.ending || s.signalled || !s.mediaReady) return;
     s.signalled = true;
-    this.send({ t: 'mic.ready', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
+    this.send({ t: 'ptt-mic.ready', id: s.id, epoch: s.localEpoch, target: s.peerEpoch });
   }
   message(m) {
-    if (!this.connected || !m || typeof m !== 'object') return;
-    if (m.t === 'mic.policy') {
+    if (!this.connected || !m || typeof m !== 'object' || !TYPES.includes(m.t)) return;
+    if (m.t === 'ptt-mic.policy') {
       if (m.version !== 2 || !validId(m.epoch)) return;
       const first = !this.peer || this.peer.epoch !== m.epoch;
       if (first || (this.tx && m.accept !== true)) this.stop('Receiver policy changed');
@@ -132,13 +132,13 @@ class Microphone extends EventEmitter {
       return;
     }
     if (!this.peer || m.epoch !== this.peer.epoch || m.target !== this.epoch || !validId(m.id)) return;
-    if (m.t === 'mic.ended' && this.awaitingEnd && m.id === this.awaitingEnd.id) {
+    if (m.t === 'ptt-mic.ended' && this.awaitingEnd && m.id === this.awaitingEnd.id) {
       this.awaitingEnd = null;
       if (m.ready !== true) { this.peer.accept = false; this.error = 'Microphone stop was not confirmed'; }
       else if (this.error === 'The previous voice session is still ending') this.error = '';
       this.emit('change'); return;
     }
-    if (m.t === 'mic.offer') {
+    if (m.t === 'ptt-mic.offer') {
       if (!this.accepting || this.route.mode() !== 'driven' || m.route !== this.route.incoming() || !Number.isSafeInteger(m.route) || m.route <= 0 || typeof m.sdp !== 'string' || m.sdp.length > 65536) return;
       // Never replace a live round with a different offer. New rounds follow an explicit stop.
       if (this.rx || this.finished.has(m.id)) return;
@@ -149,11 +149,11 @@ class Microphone extends EventEmitter {
     }
     const s = this.tx || this.rx;
     if (!s || s.id !== m.id) return;
-    if (m.t === 'mic.stop') this.stop('Peer stopped', m.drain === true);
-    else if (m.t === 'mic.ready' && this.tx) { this.tx.captureWanted = true; this.command({ action: 'capture', id: s.id }); }
-    else if (m.t === 'mic.pulse') { s.at = this.now(); this.command({ action: 'pulse', id: s.id }); }
-    else if (m.t === 'mic.answer' && this.tx && typeof m.sdp === 'string' && m.sdp.length <= 65536) this.command({ action: 'answer', id: s.id, sdp: m.sdp });
-    else if (m.t === 'mic.ice' && m.candidate && typeof m.candidate.candidate === 'string' && m.candidate.candidate.length <= 4096) this.command({ action: 'ice', id: s.id, candidate: m.candidate });
+    if (m.t === 'ptt-mic.stop') this.stop('Peer stopped', m.drain === true);
+    else if (m.t === 'ptt-mic.ready' && this.tx) { this.tx.captureWanted = true; this.command({ action: 'capture', id: s.id }); }
+    else if (m.t === 'ptt-mic.pulse') { s.at = this.now(); this.command({ action: 'pulse', id: s.id }); }
+    else if (m.t === 'ptt-mic.answer' && this.tx && typeof m.sdp === 'string' && m.sdp.length <= 65536) this.command({ action: 'answer', id: s.id, sdp: m.sdp });
+    else if (m.t === 'ptt-mic.ice' && m.candidate && typeof m.candidate.candidate === 'string' && m.candidate.candidate.length <= 4096) this.command({ action: 'ice', id: s.id, candidate: m.candidate });
   }
   tick() {
     this.routeChanged();
@@ -166,7 +166,7 @@ class Microphone extends EventEmitter {
     const s = this.tx || this.rx;
     if (!s) return;
     if (this.now() - s.at > 5000) return this.fail('Microphone connection timed out');
-    this.send({ t: 'mic.pulse', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch });
+    this.send({ t: 'ptt-mic.pulse', id: s.id, epoch: this.epoch, target: this.peer && this.peer.epoch });
     this.command({ action: 'pulse', id: s.id }); // renderer stops too if the main process stalls
   }
   command(m) {
@@ -214,9 +214,9 @@ class Microphone extends EventEmitter {
       s.status = String(m.status).slice(0, 40);
       if (['failed', 'disconnected', 'closed'].includes(s.status)) return this.fail('Microphone media connection ended');
       this.emit('change');
-    } else if (['mic.offer', 'mic.answer', 'mic.ice'].includes(m.t)) {
-      if (m.t === 'mic.offer' && this.tx === s) s.offered = true;
-      const payload = m.t === 'mic.ice' ? { candidate: m.candidate } : { sdp: m.sdp };
+    } else if (['ptt-mic.offer', 'ptt-mic.answer', 'ptt-mic.ice'].includes(m.t)) {
+      if (m.t === 'ptt-mic.offer' && this.tx === s) s.offered = true;
+      const payload = m.t === 'ptt-mic.ice' ? { candidate: m.candidate } : { sdp: m.sdp };
       this.send({ ...payload, t: m.t, id: s.id, route: s.route, epoch: this.epoch, target: this.peer && this.peer.epoch });
     }
   }

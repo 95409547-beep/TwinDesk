@@ -37,11 +37,14 @@ object Notify {
     const val ID_HUB_ASK = 11
     const val ID_REZUME = 13 // ReZume: the computer's tab or document (the last one only)
     const val ID_REZUME_READY = 14 // … a document that came, to open
+    const val ID_RING = 15 // the computer rang this phone: Stop
+    const val ID_DIAL = 16 // a code from the computer (*#06#…): tap to open the dialer with it
+    const val ID_MEDIA_DEL = 17 // Remove on the computer's Photos page, without All files access: tap for Android's confirmation
     const val ID_SOUND = 12 // the sound capture: asking for Start, then its service's own
     private const val ID_FILES_BASE = 1000
     private const val ID_COMPUTER_BASE = 100000
 
-    private fun nm(ctx: Context) = ctx.getSystemService(NotificationManager::class.java)
+    fun nm(ctx: Context) = ctx.getSystemService(NotificationManager::class.java)
 
     fun channels(ctx: Context) {
         val n = nm(ctx)
@@ -180,6 +183,20 @@ object Notify {
 
     fun cancelWifiOff(ctx: Context) = nm(ctx).cancel(ID_WIFI)
 
+    // A code dialed on the computer (Calls.kt): never run from there, the dialer opens with it here.
+    fun dial(ctx: Context, code: String, open: Intent) {
+        val pi = PendingIntent.getActivity(ctx, ID_DIAL, open, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        runCatching {
+            nm(ctx).notify(ID_DIAL, Notification.Builder(ctx, CH_ASK)
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle("Dial $code")
+                .setContentText("A code from the computer. Tap to open the dialer with it.")
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build())
+        }
+    }
+
     // The computer's mouse wants this phone without wireless debugging: the Accessibility switch.
     // supported: this build has the Accessibility service (the full one); else the app, which says how to get it.
     fun input(ctx: Context, name: String, supported: Boolean) {
@@ -202,15 +219,17 @@ object Notify {
 
     fun cancelInput(ctx: Context) = nm(ctx).cancel(ID_INPUT)
 
-    // The computer wants this phone's sound and adb can't carry it (Sound.kt): Start asks for the capture.
-    fun sound(ctx: Context, name: String) {
+    // The computer wants this phone's sound or its screen without wireless debugging (Sound.kt,
+    // Mirror.kt): Start asks for the capture (one Start for both).
+    fun sound(ctx: Context, name: String, screen: Boolean = false) {
         val start = PendingIntent.getActivity(ctx, 12, Intent(ctx, SoundActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val text = "Without wireless debugging, TwinDesk captures it: Start, then Android asks once more. Apps that don’t allow it stay silent."
+        val text = if (screen) "Without wireless debugging, TwinDesk shares it: Start, then Android asks once more. You can stop it from here any time."
+            else "Without wireless debugging, TwinDesk captures it: Start, then Android asks once more. Apps that don’t allow it stay silent."
         runCatching {
             nm(ctx).notify(ID_SOUND, Notification.Builder(ctx, CH_INVITE)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setContentTitle("Play this phone’s sound on $name")
+                .setContentTitle(if (screen) "Show this phone’s screen on $name" else "Play this phone’s sound on $name")
                 .setContentText(text)
                 .setStyle(Notification.BigTextStyle().bigText(text))
                 .setContentIntent(start)
@@ -223,13 +242,35 @@ object Notify {
     fun cancelSound(ctx: Context) = runCatching { nm(ctx).cancel(ID_SOUND) }.let { }
 
     // While it plays there (SoundService's own notification): Stop ends it.
-    fun soundOn(ctx: Context, name: String): Notification = Notification.Builder(ctx, CH_LINK)
+    fun soundOn(ctx: Context, name: String, screen: Boolean = false, sound: Boolean = true): Notification = Notification.Builder(ctx, CH_LINK)
         .setSmallIcon(R.drawable.ic_stat)
-        .setContentTitle("This phone’s sound plays on $name")
+        .setContentTitle(when {
+            screen && sound -> "This phone’s screen and sound are on $name"
+            screen -> "This phone’s screen is shown on $name"
+            else -> "This phone’s sound plays on $name"
+        })
         .setContentIntent(openApp(ctx))
         .setOngoing(true)
         .addAction(Notification.Action.Builder(null, "Stop", action(ctx, ActionReceiver.SOUND_STOP, 13)).build())
         .build()
+
+    // Photos removed on the computer when TwinDesk can't delete them itself (no All files access):
+    // Android's own Delete confirmation, opened by tapping (it can't open from the background).
+    fun mediaDelete(ctx: Context, name: String, count: Int, confirm: PendingIntent) {
+        val what = if (count == 1) "1 photo or video" else "$count photos and videos"
+        runCatching {
+            nm(ctx).createNotificationChannel(NotificationChannel(CH_ASK, "Requests from your computer", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Your computer asks for access it needs (Calls, Messages, Photos)"
+            })
+            nm(ctx).notify(ID_MEDIA_DEL, Notification.Builder(ctx, CH_ASK)
+                .setSmallIcon(R.drawable.ic_stat)
+                .setContentTitle("Remove $what?")
+                .setContentText("$name asks to remove them from this phone. Tap to confirm.")
+                .setContentIntent(confirm)
+                .setAutoCancel(true)
+                .build())
+        }
+    }
 
     // The computer's Allow for Calls, Messages or Photos, when the prompt can't open by itself
     // (no "Display over other apps"): tap for Android's prompt. Its channel is made the first time.
@@ -251,6 +292,25 @@ object Notify {
                 .build())
         }
     }
+
+    // The computer rang this phone (Overview › Ring there): Stop here, or swipe it away.
+    fun ringing(ctx: Context, name: String) = runCatching {
+        val stop = action(ctx, ActionReceiver.RING_STOP, 15)
+        val open = PendingIntent.getActivity(ctx, 15, Intent(ctx, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+        nm(ctx).notify(ID_RING, Notification.Builder(ctx, CH_INVITE)
+            .setSmallIcon(R.drawable.ic_stat)
+            .setContentTitle("Ringing")
+            .setContentText(if (name.isNotEmpty()) "$name is ringing this phone" else "Your computer is ringing this phone")
+            .setCategory(Notification.CATEGORY_ALARM)
+            .setContentIntent(open)
+            .setDeleteIntent(stop)
+            .setOngoing(true)
+            .addAction(Notification.Action.Builder(null, "Stop", stop).build())
+            .build())
+    }.let { }
+
+    fun cancelRinging(ctx: Context) = runCatching { nm(ctx).cancel(ID_RING) }.let { }
 
     fun cancelHubAsk(ctx: Context) = runCatching { nm(ctx).cancel(ID_HUB_ASK) }.let { }
 

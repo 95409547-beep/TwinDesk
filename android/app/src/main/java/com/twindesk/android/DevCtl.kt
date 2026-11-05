@@ -66,9 +66,28 @@ class DevCtl(core: Core) : Feature(core) {
         last = ""
         watch(true)
         sendState()
+        askTries = 0
+        main.removeCallbacks(askAgain)
+        main.postDelayed(askAgain, 1500)
+    }
+
+    // The computer's dev.state can be missed at the start (it sent before this side listened, or the
+    // computer had another device selected then): without it Overview shows only the hero until a
+    // page change there. Ours again, a few times, until it answers (it answers our first).
+    private var askTries = 0
+    private val askAgain: Runnable = object : Runnable {
+        override fun run() {
+            if (!core.link.connected || computer != null || askTries >= 6) return
+            askTries++
+            last = ""
+            asking = true
+            try { sendState() } finally { asking = false }
+            main.postDelayed(this, 1500L * (askTries + 1))
+        }
     }
 
     override fun onClosed() {
+        main.removeCallbacks(askAgain)
         watch(false)
         ring(false)
         computer = null
@@ -90,7 +109,18 @@ class DevCtl(core: Core) : Feature(core) {
     }
 
     // The Computer page's buttons: to the computer.
-    fun ask(cmd: String, vararg fields: Pair<String, Any?>) = core.send(msg(DO, "do" to cmd, *fields))
+    // Ring and Stop show at once (as the computer's Overview does): the computer's dev.state corrects
+    // it, but one that is late or never comes (another device selected there) must not leave Ring
+    // up while it rings, so Stop stays reachable.
+    fun ask(cmd: String, vararg fields: Pair<String, Any?>) {
+        core.send(msg(DO, "do" to cmd, *fields))
+        val c = computer ?: return
+        if (cmd == "ring" || cmd == "ringStop") {
+            computer = JSONObject(c.toString()).put("ringing", cmd == "ring")
+            core.changed()
+            main.post { onComputer?.invoke() }
+        }
+    }
 
     // ---- what the computer asks ----
 
@@ -110,10 +140,16 @@ class DevCtl(core: Core) : Feature(core) {
 
     private val audio get() = ctx.getSystemService(AudioManager::class.java)
 
+    // Ringing because the computer asked: Stop on the phone (its notification, or Overview here).
+    val ringing get() = ringtone != null
+    fun stopRing() = main.post { ring(false) }.let { }
+
     private fun ring(on: Boolean) {
         main.removeCallbacks(stopRing)
+        val was = ringtone != null
         ringtone?.stop()
         ringtone = null
+        if (was && !on) { Notify.cancelRinging(ctx); core.changed() }
         if (alarmBefore >= 0) { runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, alarmBefore, 0) }; alarmBefore = -1 }
         if (!on) { later(0); return }
         val uri = RingtoneManager.getActualDefaultRingtoneUri(ctx, RingtoneManager.TYPE_ALARM)
@@ -125,6 +161,8 @@ class DevCtl(core: Core) : Feature(core) {
         runCatching { audio.setStreamVolume(AudioManager.STREAM_ALARM, audio.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0) }
         r.play()
         ringtone = r
+        Notify.ringing(ctx, core.host?.name.orEmpty())
+        core.changed()
         main.postDelayed(stopRing, RING_MS)
         later(0)
     }
@@ -242,12 +280,15 @@ class DevCtl(core: Core) : Feature(core) {
         val can = JSONObject().put("ring", true).put("qs", true).put("ringer", true).put("volume", true)
         if (InputService.running != null && Build.VERSION.SDK_INT >= 28) can.put("lock", true)
         val m = msg(STATE, "can" to can, "ringing" to (ringtone != null), "qs" to qs, "info" to info())
+        m.put("app", JSONObject().put("v", BuildConfig.VERSION_NAME)) // which TwinDesk (shared/appinfo.js): the computer warns when it's older
         top()?.let { m.put("top", jsonArray(it)) }
         val k = m.toString()
         if (k == last) return
         last = k
+        if (asking) m.put("ask", true) // the computer answers with its own (shared/devctl.js)
         core.send(m)
     }
+    private var asking = false
 
     // For the computer's Overview card: storage, the network, the signal.
     private fun info(): JSONObject {

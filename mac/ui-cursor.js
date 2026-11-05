@@ -29,11 +29,16 @@ UI.tab({
     const reverse = UI.switch((v) => api.setKvm({ reverseScroll: v }), { label: I18n.t('Reverse scrolling') });
     const gestures = UI.switch((v) => api.setKvm({ gestures: v }), { label: I18n.t('Trackpad gestures') });
     const gestureRow = UI.row(I18n.t('Trackpad gestures'), I18n.t('Pinch to zoom, swipe between desktops, Mission Control / Task View, back and forward — done the native way on {name}. The same on both'), [gestures]);
+    const syncPads = UI.switch((v) => api.setKvm({ syncPads: v }), { label: I18n.t('Sync touchpads') });
+    const syncRow = UI.row(I18n.t('Sync touchpads'), I18n.t('On: every computer’s mouse and trackpad move the one pointer, wherever it is. Off: using a computer’s own trackpad takes its pointer back. The same on both'), [syncPads]);
+    const shake = UI.switch((v) => api.setKvm({ shakeHome: v }), { label: I18n.t('Shake to bring the pointer back') });
+    const shakeRow = UI.row(I18n.t('Shake to bring the pointer back'), I18n.t('While you use another computer, shake this computer’s mouse or trackpad left and right: the pointer comes back here'), [shake]);
     const ble = UI.switch((v) => api.setKvm({ ble: v }), { label: I18n.t('Over Bluetooth') });
     const bleRow = UI.row(I18n.t('Over Bluetooth'), I18n.t('When {name} isn’t on this network and you’re connected through Bluetooth (slower). Off: nothing crosses until you’re on Wi-Fi again. The same on both'), [ble]);
 
     // A phone as the peer: how the pointer and keys reach it (settings.phone.input, the phone's own toggle too).
-    const via = UI.segmented([{ value: 'adb', label: 'ADB' }, { value: 'phone', label: I18n.t('Accessibility') }], (v) => api.setPhone({ input: v, inputPicked: true }));
+    const via = UI.segmented([{ value: 'auto', label: I18n.t('Auto') }, { value: 'adb', label: I18n.t('Full (ADB)') }, { value: 'phone', label: I18n.t('Limited (Accessibility)') }],
+      (v) => api.setPhone(v === 'auto' ? { input: 'adb', inputPicked: false } : { input: v, inputPicked: true }));
     // With a phone: its own card on top, with the way to its wireless debugging (Connection).
     const adbBtn = UI.button(I18n.t('Wireless Debugging'), () => UI.go('connection'), 'small');
     const viaRow = UI.row(I18n.t('Control the phone with'), '', [via.el, adbBtn]);
@@ -60,6 +65,8 @@ UI.tab({
         speedRow = peerRow(I18n.t('Pointer speed here'), '', [speed]),
         peerRow(I18n.t('Reverse scrolling from {name}'), '', [reverse]),
         gestureRow,
+        syncRow,
+        shakeRow,
       ]),
       UI.card(I18n.t('Not on the same network'), [bleRow]),
     );
@@ -84,14 +91,16 @@ UI.tab({
       speedRow.label.textContent = UI.fill(speedRow.label.dataset.peer);
       reverse.set(k.reverseScroll);
       gestures.set(k.gestures !== false);
+      syncPads.set(k.syncPads === true);
+      shake.set(k.shakeHome !== false);
       ble.set(k.ble !== false);
       viaCard.hidden = !p.phone;
       const br = (s.phone || {}).bridge || {};
-      via.set(br.input || (((s.phone || {}).settings || {}).input === 'phone' ? 'phone' : 'adb'));
+      via.set(br.inputMode || (((s.phone || {}).settings || {}).input === 'phone' ? 'phone' : 'adb'));
       adbBtn.hidden = br.state === 'ready';
-      viaRow.setHint(br.inputMode === 'auto' ? (br.state === 'ready' ? I18n.t('Automatic: ADB, wireless debugging is ready') : I18n.t('Automatic: Accessibility until wireless debugging is set up'))
-        : br.input === 'phone' ? I18n.t('Accessibility: TwinDesk on the phone taps and types. Works over Wi-Fi, Wi-Fi Direct and Bluetooth, no developer options')
-          : I18n.t('ADB: full control through wireless debugging') + (br.state === 'ready' ? '' : I18n.t(' (not set up yet)')));
+      viaRow.setHint(br.inputMode === 'auto' ? (br.state === 'ready' ? I18n.t('Auto: Full (ADB), wireless debugging is ready') : I18n.t('Auto: Limited until wireless debugging is set up'))
+        : br.input === 'phone' ? I18n.t('Limited: TwinDesk on the phone taps and types (its Accessibility service). Works over Wi-Fi, Wi-Fi Direct and Bluetooth, no developer options')
+          : I18n.t('Full (ADB): full control through wireless debugging') + (br.state === 'ready' ? '' : I18n.t(' (not set up yet)')));
     };
   },
 });

@@ -21,7 +21,7 @@ function start(id) {
   const s = active = { id, pending: [], local: [], signalled: false, remote: false, pulse: Date.now() };
   s.timer = setInterval(() => { if (current(s) && Date.now() - s.pulse > 5000) { report(s, { action: 'error', error: 'Microphone heartbeat stopped' }); stop(); } }, 500);
   const pc = s.pc = new RTCPeerConnection({ iceServers: [] });
-  pc.onicecandidate = (e) => { if (e.candidate && current(s)) { const m = { t: 'mic.ice', candidate: e.candidate.toJSON() }; if (s.signalled) report(s, m); else if (s.local.length < 64) s.local.push(m); } };
+  pc.onicecandidate = (e) => { if (e.candidate && current(s)) { const m = { t: 'ptt-mic.ice', candidate: e.candidate.toJSON() }; if (s.signalled) report(s, m); else if (s.local.length < 64) s.local.push(m); } };
   pc.onconnectionstatechange = () => {
     report(s, { action: 'state', status: s.sending && !s.captured && pc.connectionState === 'connected' ? 'preparing' : pc.connectionState });
     maybePrepared(s); maybeCapture(s);
@@ -98,7 +98,7 @@ api.on(async (m) => {
       const offer = await s.pc.createOffer();
       if (!current(s)) return;
       await s.pc.setLocalDescription(offer);
-      description(s, { t: 'mic.offer', sdp: s.pc.localDescription.sdp });
+      description(s, { t: 'ptt-mic.offer', sdp: s.pc.localDescription.sdp });
       return;
     }
     if (m.action === 'receive') {
@@ -114,7 +114,7 @@ api.on(async (m) => {
       await remote(s, { type: 'offer', sdp: m.sdp });
       if (!current(s)) return;
       await s.pc.setLocalDescription(await s.pc.createAnswer());
-      description(s, { t: 'mic.answer', sdp: s.pc.localDescription.sdp });
+      description(s, { t: 'ptt-mic.answer', sdp: s.pc.localDescription.sdp });
       return;
     }
     if (!s || s.id !== m.id) return;

@@ -30,6 +30,7 @@ class PcApps extends EventEmitter {
 
     this.pendingLink = null; // {id, at}: a kept Dock icon was clicked before the PC was connected
     server.on('client', () => {
+      this.rz = false;
       this.apps = [];
       this.launch = {};
       this._policy();
@@ -54,7 +55,7 @@ class PcApps extends EventEmitter {
       this.launch[String(m.id)] = m.ok ? 'ok' : String(m.why || 'didn’t start');
       this.emit('change');
     });
-    server.on(`t:${T.PAPP_WINDOWS}`, (m) => this.cfg.on && Array.isArray(m.windows) && this._sync(m.windows));
+    server.on(`t:${T.PAPP_WINDOWS}`, (m) => this.accepting && Array.isArray(m.windows) && this._sync(m.windows));
     server.on(`t:${T.RTC2_OFFER}`, (m) => this._onOffer(m));
     // `win: 'view'` is another Mac's viewer talking to our own sender (appsend.js), not for us.
     server.on(`t:${T.RTC2_ICE}`, (m) => {
@@ -91,8 +92,20 @@ class PcApps extends EventEmitter {
     return this.getSettings().papps;
   }
 
+  // Windows ReZume took from the other computer come too, with this tab's switch off (rezume.js take).
+  acceptReZume(on) {
+    if (this.rz === (on === true)) return;
+    this.rz = on === true;
+    if (this.server.current) this._policy();
+    if (!this.accepting) this._sync([]);
+  }
+
+  get accepting() {
+    return !!this.cfg.on || this.rz === true || !!this.getSettings().apps.moveWindows; // Move windows takes the windows moved here too
+  }
+
   _policy() {
-    this.server.sendToClient({ t: T.PAPP_POLICY, accept: !!this.cfg.on });
+    this.server.sendToClient({ t: T.PAPP_POLICY, accept: this.accepting });
   }
 
   list() {
@@ -126,6 +139,7 @@ class PcApps extends EventEmitter {
         popup: raw.popup === true, owner: Number(raw.owner), x: Number(raw.x) || 0, y: Number(raw.y) || 0,
         // The PC screen's work area (physical px) — windows here never grow past it.
         maxW: Number(raw.maxW) > 0 ? Number(raw.maxW) : 0, maxH: Number(raw.maxH) > 0 ? Number(raw.maxH) : 0,
+        moved: raw.moved === true, // dragged over from there (shared/movewin.js): it opens where the pointer came in
       };
       if (info.popup) {
         // A menu / drop-down: needs its owner's window here (listed before it).
@@ -198,13 +212,20 @@ class PcApps extends EventEmitter {
 
   _create(info) {
     if (info.popup) return this._createPopup(info);
-    const wa = screen.getPrimaryDisplay().workArea;
+    // A moved window comes in with the pointer: on that screen, its title bar under the pointer.
+    const at = info.moved ? screen.getCursorScreenPoint() : null;
+    const wa = (at ? screen.getDisplayNearestPoint(at) : screen.getPrimaryDisplay()).workArea;
     const width = Math.min(Math.round(info.w / info.scale), wa.width);
     const height = Math.min(Math.round(info.h / info.scale), wa.height);
+    const where = at ? {
+      x: Math.round(Math.min(Math.max(at.x - width / 2, wa.x), wa.x + wa.width - width)),
+      y: Math.round(Math.min(Math.max(at.y - 16, wa.y), wa.y + wa.height - height)),
+    } : {};
     const win = new BrowserWindow({
       title: this._title(info),
       width,
       height,
+      ...where,
       useContentSize: true,
       backgroundColor: '#000000',
       fullscreenable: false, // full screen stretched the picture; zoom resizes the PC window instead
@@ -217,6 +238,7 @@ class PcApps extends EventEmitter {
       },
     });
     const w = { info, win, session: null, ready: false, queue: [], closing: false, focusedAt: Date.now(), sizedAt: 0 };
+    if (info.moved && this.driven) this._toWin(w, { t: 'cursor', own: true });
     win.on('page-title-updated', (e) => {
       e.preventDefault();
       win.setTitle(this._title(w.info));
@@ -273,6 +295,8 @@ class PcApps extends EventEmitter {
   }
 
   _title(info) {
+    // Moved here from the other computer: its name says so (it goes back when closed or dragged back).
+    if (info.moved) return this._i18n().t('{title} (from {name})', { title: info.title || this._i18n().t('PC app'), name: (this.server.current && this.server.current.name) || this._i18n().t('the PC') });
     const app = this._appName(info.id);
     return info.title && app && !info.title.includes(app) ? `${info.title} · ${app}` : info.title || app || this._i18n().t('PC app');
   }
@@ -306,7 +330,7 @@ class PcApps extends EventEmitter {
   }
 
   _onOffer(m) {
-    if (m.kind !== 'window' || m.win === 'view' || typeof m.sdp !== 'string' || !this.cfg.on) return;
+    if (m.kind !== 'window' || m.win === 'view' || typeof m.sdp !== 'string' || !this.accepting) return;
     const w = this.wins.get(Number(m.wid));
     if (!w || w.win.isDestroyed()) return; // not listed (yet): the PC lists before it offers
     w.session = m.session;
@@ -374,14 +398,37 @@ class PcApps extends EventEmitter {
     this.emit('popup', ok ? 'home' : 'driven', { key: ok ? '{app} is in the Dock' : 'Couldn’t add {app} to the Dock', vars: { app: a.name } });
   }
 
+  // The PC drives this Mac (kvm.js mode): its pointer is hidden there, so a moved window's copy
+  // (whose picture has no pointer then) shows this Mac's own over it.
+  setDriven(on) {
+    on = !!on;
+    if (on === !!this.driven) return;
+    this.driven = on;
+    for (const w of this.wins.values()) if (w.info.moved && !w.info.popup) this._toWin(w, { t: 'cursor', own: on });
+  }
+
   // Is one of the PC app windows focused? (kvm.js doesn't cross the edge while it is.)
   get focused() {
     return [...this.wins.values()].some((w) => !w.win.isDestroyed() && w.win.isFocused());
   }
 
+  // A window grabbed with the move key crossed back (kvm.js, the helper's `moving` CGWindowID): if
+  // it's the copy of a window moved here, that window goes home (shared/movewin.js).
+  returnWindow(cgId) {
+    if (!cgId) return false;
+    for (const w of this.wins.values()) {
+      if (!w.info.moved || w.win.isDestroyed()) continue;
+      const m = /^window:(\d+):/.exec(w.win.getMediaSourceId() || '');
+      if (!m || Number(m[1]) !== cgId) continue;
+      this.server.sendToClient({ t: T.PAPP_RETURN, wid: w.info.wid });
+      return true;
+    }
+    return false;
+  }
+
   applySettings() {
     this._policy();
-    if (!this.cfg.on) this._sync([]);
+    if (!this.accepting) this._sync([]);
     else if (!this.apps.length) this.list();
     this.emit('change');
   }

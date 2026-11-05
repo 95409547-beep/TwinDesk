@@ -163,6 +163,33 @@ class Link(
         return w.send(m.toString())
     }
 
+    // send() for the pointer's hot path (WebHost's TD.move): the line written into one builder, made
+    // once. Never held for Wi-Fi (Netlink.holdOut holds only files). kind: 0 remote.mm, 1 remote.wh,
+    // 2 in.mm (WebHost).
+    private val hot = StringBuilder(96)
+    fun sendMove(kind: Int, a: Double, b: Double, smooth: Boolean): Boolean {
+        val w = ws ?: return false
+        if (state != "connected" || !a.isFinite() || !b.isFinite()) return false
+        val line = synchronized(hot) {
+            val s = hot
+            s.setLength(0)
+            when (kind) {
+                0 -> num(num(s.append("{\"t\":\"remote.mm\",\"dx\":"), a).append(",\"dy\":"), b).append(",\"smooth\":").append(smooth)
+                1 -> num(num(s.append("{\"t\":\"remote.wh\",\"dx\":"), a).append(",\"dy\":"), b)
+                2 -> num(num(s.append("{\"t\":\"in.mm\",\"x\":"), a).append(",\"y\":"), b)
+                else -> return false
+            }
+            s.append('}').toString()
+        }
+        return w.send(line)
+    }
+
+    // A JSON number: a whole one without ".0" (as the page's JSON.stringify writes it).
+    private fun num(s: StringBuilder, v: Double): StringBuilder {
+        val l = v.toLong()
+        return if (l.toDouble() == v && l > -1_000_000_000_000L && l < 1_000_000_000_000L) s.append(l) else s.append(v)
+    }
+
     // Bytes queued on the socket (file sending waits while it is high).
     fun queued(): Long = ws?.queueSize() ?: 0
 
@@ -176,8 +203,26 @@ class Link(
         ws = socket("wss://$address:$port", pinFp)
     }
 
+    // Where each socket goes ("address", port), for the session's other HTTPS calls (Mirror.kt).
+    private val endOf = java.util.concurrent.ConcurrentHashMap<WebSocket, Pair<String, Int>>()
+
+    // The session's socket now: its address and port (127.0.0.1 through the cable or Bluetooth).
+    fun endpoint(): Pair<String, Int>? = ws?.let { endOf[it] }
+
+    // An HTTPS client for the session's computer, its certificate pinned as the session's is.
+    fun https(): OkHttpClient? {
+        val fp = host?.fp ?: return null
+        return client(fp).newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).writeTimeout(0, TimeUnit.MILLISECONDS).build()
+    }
+
     // Self-signed certificates: the fingerprint is the identity (pinned once paired).
     private fun socket(url: String, pinFp: String?): WebSocket {
+        val w = client(pinFp).newWebSocket(Request.Builder().url(url).build(), Listener())
+        Regex("^wss://([^:/]+):(\\d+)").find(url)?.let { endOf[w] = it.groupValues[1] to it.groupValues[2].toInt() }
+        return w
+    }
+
+    private fun client(pinFp: String?): OkHttpClient {
         val trust = object : X509TrustManager {
             override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
             override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String?) {
@@ -188,19 +233,19 @@ class Link(
             override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
         }
         val ssl = SSLContext.getInstance("TLS").apply { init(null, arrayOf(trust), null) }
-        val client = OkHttpClient.Builder()
+        return OkHttpClient.Builder()
             .sslSocketFactory(ssl.socketFactory, trust)
             .hostnameVerifier { _, _ -> true }
             .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(0, TimeUnit.MILLISECONDS)
             .build()
-        return client.newWebSocket(Request.Builder().url(url).build(), Listener())
     }
 
     // ---- the resume socket and the fallback ----
 
     private fun gone(w: WebSocket, failure: String?) {
         lastRxOf.remove(w)
+        endOf.remove(w)
         when {
             w === pending -> pending = null
             w === alt -> { alt = null; events.onChange() }

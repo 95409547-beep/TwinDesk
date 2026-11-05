@@ -4,8 +4,8 @@
 // resizing the window resizes the app). One scrcpy session per window (scrcpy.js); the window
 // decodes the H.264 itself (phoneview-renderer.js) and sends touches, keys and scrolls back.
 // Port of mac/phoneview.js: Windows title bar (its own buttons drawn over ours), no Ctrl/Cmd swap.
-// The window's controls sit in the title bar (the default), a side panel or a bar under the picture
-// (settings.phone.controls), and the window is sized for the picture plus those bars.
+// The window's controls sit in the title bar, as on the Mac (the default), or a side panel
+// (settings.phone.controls 'side'), and the window is sized for the picture plus those bars.
 // A phone app's windows have a taskbar identity of their own (its icon, Pin to taskbar starts it),
 // and pin() puts it in Start › TwinDesk Apps: both start "TwinDesk.exe --phone-app=<package>".
 //
@@ -20,15 +20,16 @@ const { EventEmitter } = require('events');
 const P = require('../shared/protocol.js');
 const I18n = require('../shared/i18n.js');
 const { Session, ACTION, TYPE } = require('./scrcpy');
+const { NativeScreen } = require('../shared/nativescreen.js');
 const { KeyState, ANDROID } = require('./android-keys');
 const chat = require('../shared/phonechat.js');
 const { writeClipImage } = require('../shared/clipimage.js');
 
 const T = P.T;
 const NOTIFIED_MS = 60000; // how long a clicked notification waits for the unlock and wireless debugging
-// The window's own bars around the picture (phoneview.css): the title bar, the side panel, the bottom bar.
-const TITLE_H = 32, PANEL_W = 44, NAVBAR_H = 40;
-const HIDDEN = ['sound', 'netsound']; // windows that only play the phone's sound: no picture, no bars
+// The window's own bars around the picture (phoneview.css): the title bar and the side panel.
+const TITLE_H = 32, PANEL_W = 44;
+const HIDDEN = ['sound', 'netsound', 'mic']; // windows that only play the phone's sound: no picture, no bars
 let nextId = 1;
 let quitting = false; // a camera's window hides on close, but not on quit
 app.on('before-quit', () => { quitting = true; });
@@ -72,7 +73,7 @@ class PhoneViews extends EventEmitter {
       this.activeApp = '';
       this.a11y = false;
     });
-    this.on('change', () => bridge._tellPhone());
+    this.on('change', () => bridge._sound()); // a Native screen window with its sound takes the phone's own capture
     ipcMain.on('phoneview:in', (e, m) => {
       const v = [...this.views.values()].find((x) => x.win && !x.win.isDestroyed() && x.win.webContents === e.sender);
       if (v && m && typeof m === 'object') this._input(v, m);
@@ -93,6 +94,18 @@ class PhoneViews extends EventEmitter {
     } else if (!on && open) this.close(open.id);
   }
 
+  // The phone's microphone as a microphone here (Audio › Microphone, Android 11 or later): an
+  // audio-only session capturing the phone's mic, in a hidden window that plays it into the
+  // TwinDesk Microphone (Linux) or a virtual audio cable (phoneview-renderer.js picks it).
+  mic(on, out = '') {
+    const open = [...this.views.values()].find((v) => v.kind === 'mic');
+    if (open && on && open.sink !== out) this.close(open.id); // another output picked: start again
+    else if (open && on) return;
+    if (on && this.bridge.serial) {
+      this._open({ kind: 'mic', title: this._i18n().t('Phone microphone'), titleKey: 'Phone microphone', width: 200, height: 100, hidden: true, sink: out, opts: { video: false, audio: true, control: false, audioSource: 'mic' } });
+    } else if (!on && open) this.close(open.id);
+  }
+
   // The phone's sound captured by the phone itself (no wireless debugging, phone-bridge.js): a
   // hidden window with no adb session, fed what comes through the session.
   netSound(on) {
@@ -102,12 +115,18 @@ class PhoneViews extends EventEmitter {
   }
 
   netAudio(m) {
-    const v = [...this.views.values()].find((x) => x.kind === 'netsound');
-    if (v) this._send(v, 'phoneview:netaudio', { codec: m.codec === 'pcm' ? 'pcm' : 'opus', p: Array.isArray(m.p) ? m.p.filter((x) => typeof x === 'string').slice(0, 10) : [] });
+    const p = { codec: m.codec === 'pcm' ? 'pcm' : 'opus', p: Array.isArray(m.p) ? m.p.filter((x) => typeof x === 'string').slice(0, 10) : [] };
+    for (const v of this.views.values()) if (v.kind === 'netsound' || (v.native && v.session && v.session.opts.audio)) this._send(v, 'phoneview:netaudio', p);
+  }
+
+  // A Native screen window (Mirroring › Native) that plays the phone's sound: phone-bridge.js asks
+  // the phone for it (phone.sound.want).
+  get nativeScreenSound() {
+    return [...this.views.values()].some((v) => v.kind === 'screen' && v.native && v.session && !v.session.closed && v.session.opts.audio);
   }
 
   list() {
-    return [...this.views.values()].filter((v) => v.kind !== 'sound' && v.kind !== 'netsound').map((v) => ({ id: v.id, kind: v.kind, app: v.app || null, title: v.title, facing: v.facing || null, shown: !!(v.win && !v.win.isDestroyed() && v.win.isVisible()), error: v.error || '' }));
+    return [...this.views.values()].filter((v) => v.kind !== 'sound' && v.kind !== 'netsound' && v.kind !== 'mic').map((v) => ({ id: v.id, kind: v.kind, app: v.app || null, title: v.title, facing: v.facing || null, screenOff: !!v.screenOff, native: !!v.native, shown: !!(v.win && !v.win.isDestroyed() && v.win.isVisible()), error: v.error || '' }));
   }
 
   get focused() {
@@ -125,7 +144,9 @@ class PhoneViews extends EventEmitter {
     const w = Math.round((h - c.h) * Math.min(d.w, d.h) / Math.max(d.w, d.h)) + c.w;
     const name = (this.server.current && this.server.current.name) || this._i18n().t('Phone');
     const titleKey = (this.server.current && this.server.current.name) ? '' : 'Phone';
-    this._open({ kind: 'screen', title: name, titleKey, width: w, height: h, opts: this.bridge.sessionOpts('screen') });
+    // Mirroring › Native (or Automatic without wireless debugging): the phone shares it itself.
+    const native = this.bridge.mirrorVia === 'native';
+    this._open({ kind: 'screen', native, title: name, titleKey, width: w, height: h, opts: this.bridge.sessionOpts('screen') });
   }
 
   // The phone's camera (Camera's switch, or the phone's Camera page; scrcpy's camera source, Android
@@ -272,10 +293,10 @@ class PhoneViews extends EventEmitter {
     return I18n.create(I18n.resolveLanguage(settings.ui && settings.ui.language, app.getLocale()));
   }
 
-  _open({ kind, app, title, titleKey = '', titleName = '', width, height, opts, hidden = false }) {
-    if (!this.bridge.serial && kind !== 'netsound') {
+  _open({ kind, app, title, titleKey = '', titleName = '', width, height, opts, hidden = false, sink = '', native = false }) {
+    if (!this.bridge.serial && kind !== 'netsound' && !native) {
       // Wireless debugging not up yet (just on Wi-Fi after Bluetooth): main.js opens it once it is.
-      if (this.onNoAdb && this.onNoAdb({ kind, app, title, titleKey, titleName, width, height, opts, hidden })) return;
+      if (kind !== 'mic' && this.onNoAdb && this.onNoAdb({ kind, app, title, titleKey, titleName, width, height, opts, hidden })) return;
       return this.bridge.emit('popup', 'home', 'Set up wireless debugging on the Phone page first');
     }
     const id = nextId++;
@@ -287,10 +308,10 @@ class PhoneViews extends EventEmitter {
       // click never comes: without this its AudioContext stays suspended and silent).
       webPreferences: { preload: path.join(__dirname, 'preload-phoneview.js'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, autoplayPolicy: 'no-user-gesture-required' },
     });
-    const v = { id, kind, app, title, win, session: null, keys: new KeyState(), size: null, ready: false, queue: [], chrome: this._chrome(), screenOff: false, torch: false, eaten: new Set() };
+    const v = { id, kind, app, title, win, sink, native, session: null, keys: new KeyState(), size: null, ready: false, queue: [], chrome: this._chrome(), screenOff: false, torch: false, eaten: new Set() };
     this.views.set(id, v);
     this._send(v, 'phoneview:opts', this._opts(v));
-    win.loadFile(path.join(__dirname, 'phoneview.html'), { query: { kind, title, titleKey, titleName, controls: this._controls(), language: this._i18n().locale } });
+    win.loadFile(path.join(__dirname, 'phoneview.html'), { query: { kind, title, titleKey, titleName, ...(kind === 'mic' ? { sink, virtual: process.platform === 'linux' ? '1' : '' } : {}), controls: this._controls(), language: this._i18n().locale } });
     // The phone's screen: the window keeps the picture's shape, its bars added (snapped exact
     // when a resize ends: with the bars in, the right ratio changes a little with the size).
     if (kind === 'screen') win.on('resized', () => this._fit(v, 'height'));
@@ -329,19 +350,26 @@ class PhoneViews extends EventEmitter {
     return v;
   }
 
-  // Where the window's controls sit (Phone page › Settings › Window controls): 'top' (the title
-  // bar, the default), 'side' (a panel down the right) or 'bottom' (Back, Home and Recents in a
-  // bar under the picture, the rest in the title bar).
-  // 'none': the panel button in the title bar hid them (settings.phone.panel, kept for every window).
+  // Where the window's controls sit: 'top' (Back, Home, Recents and Notifications in the title bar,
+  // as on the Mac: the default; Rotate and Phone screen off are on the Phone page) or 'side' (Phone
+  // page › Side panel: all of them in a panel down the right).
   _controls() {
     const ph = this.getSettings().phone;
-    if (ph && ph.panel === false) return 'none';
-    return ph && ['side', 'top', 'bottom'].includes(ph.controls) ? ph.controls : 'top';
+    return ph && ph.controls === 'side' ? 'side' : 'top';
+  }
+
+  // The Phone page's Rotate and Phone screen off, for the phone screen window (as on the Mac).
+  screenAct(key) {
+    if (key !== 'rotate' && key !== 'screenPower') return;
+    const v = [...this.views.values()].find((x) => x.kind === 'screen' && !x.ending);
+    if (!v) return;
+    this._input(v, { t: 'nav', key });
+    this.emit('change');
   }
 
   // The size of a window's bars around the picture.
   _chrome(controls = this._controls()) {
-    return { w: controls === 'side' ? PANEL_W : 0, h: TITLE_H + (controls === 'bottom' ? NAVBAR_H : 0) };
+    return { w: controls === 'side' ? PANEL_W : 0, h: TITLE_H };
   }
 
   // The window's switches as they are now (its controls light up).
@@ -445,8 +473,10 @@ class PhoneViews extends EventEmitter {
   }
 
   async _start(v, opts) {
-    const s = new Session(this.bridge.adb, this.bridge.serial, opts);
-    const via = this.bridge.via;
+    const s = v.native ? new NativeScreen(this.server, opts) : new Session(this.bridge.adb, this.bridge.serial, opts);
+    const via = v.native ? null : this.bridge.via;
+    if (v.native) setImmediate(() => this.bridge._sound()); // its sound, when it plays it
+    if (v.native) s.on('waiting', () => this._send(v, 'phoneview:status', { error: 'Tap Start on the phone to share its screen', errorKey: 'Tap Start on the phone to share its screen' }));
     v.session = s;
     s.on('size', (size) => {
       v.size = size;
@@ -482,14 +512,6 @@ class PhoneViews extends EventEmitter {
       const on = !v.win.isFullScreen();
       v.win.setFullScreen(on);
       return this._send(v, 'phoneview:opts', { full: on });
-    }
-    // The title bar's panel button: the controls shown or hidden in every phone window, remembered.
-    if (m.t === 'panel') {
-      const ph = this.getSettings().phone;
-      ph.panel = ph.panel === false;
-      this.bridge.emit('save');
-      this.applyControls();
-      return this.emit('change');
     }
     if (m.t === 'toggle' && (m.what === 'enterSends' || m.what === 'arrowSwipe')) {
       const ph = this.getSettings().phone;
@@ -533,7 +555,7 @@ class PhoneViews extends EventEmitter {
         if (m.key === 'settings') s.simple(TYPE.EXPAND_SETTINGS);
         if (m.key === 'rotate') s.simple(TYPE.ROTATE);
         // The phone's own screen off, its picture still here (scrcpy's display power).
-        if (m.key === 'screenPower' && v.kind === 'screen') {
+        if (m.key === 'screenPower' && v.kind === 'screen' && !v.native) {
           v.screenOff = !v.screenOff;
           s.setDisplayPower(!v.screenOff);
           this._send(v, 'phoneview:opts', { screenOff: v.screenOff });

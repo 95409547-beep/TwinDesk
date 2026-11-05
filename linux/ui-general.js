@@ -17,7 +17,7 @@ UI.tab({
     const { el, api } = UI;
     const t = (...args) => I18n.t(...args);
     const language = UI.select([
-      { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' },
+      { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' }, { value: 'ru', label: 'Русский' }, { value: 'tr', label: 'Türkçe' },
     ], (v) => api.setLanguage(v));
     language.set(I18n.locale);
     const startup = UI.switch((v) => api.setStartup(v), { label: t('Open at login') });
@@ -73,29 +73,55 @@ UI.tab({
       partSw[k] = UI.switch((v) => api.setOverview && api.setOverview({ [k]: v }), { label });
       return UI.row(label, hint, [partSw[k]]);
     });
-    body.append(
+    // Theme and accent colour (shared/look.js, shared/ui-look.js).
+    const themeRow = UI.themeRow((v) => api.setLook({ theme: v }));
+    const accentRow = UI.accentRow((v) => api.setLook({ accent: v }));
+    // One page that scrolls, its sections listed beside it; Permissions first.
+    // Advanced: how input travels (shared/inputlane.js). UDP (tdv2, the default): moves on their own
+    // lane beside the session. TCP (tdv1): everything on the session. Read at startup, so Restart shows.
+    let protoStart = null; // the protocol this run started with
+    const protoRestart = UI.button(t('Restart'), () => api.relaunch(), 'small');
+    protoRestart.hidden = true;
+    const protoSel = UI.select([
+      { value: 'udp', label: t('UDP (tdv2)') }, { value: 'tcp', label: t('TCP (tdv1)') },
+    ], (v) => { api.setApp({ inputProtocol: v }); protoRestart.hidden = v === protoStart; });
+    const protoRow = UI.row(t('Input protocol'), t('UDP moves the pointer faster. TCP works on networks that block UDP. Applies after a restart'), [protoSel, protoRestart]);
+    const sections = UI.sections([
+      UI.card(t('Permissions'), [fwRow, btRow, steadyRow]),
       UI.card(t('Startup'), [
         UI.row(t('Open at login'), t('Starts in the tray'), [startup]),
         recvRow,
       ]),
-      UI.card(t('Language'), [
-        UI.row(t('Language'), t('Some pages are still in English. Changing the language reloads this window.'), [language]),
-      ]),
       UI.card(t('Appearance'), [
+        themeRow,
+        accentRow,
         UI.row(t('Show a popup when switching'), t('When the mouse and keyboard move between devices'), [hudSw]),
         wallRow,
         media.el,
       ]),
+      UI.card(t('Language'), [
+        UI.row(t('Language'), t('Some pages are still in English. Changing the language reloads this window.'), [language]),
+      ]),
       UI.card(t('Overview'), partRows),
       UI.card(t('Network and Bluetooth'), [bleRow, blePcRow, bleWifiRow, wakeRow, keepRow]),
-      UI.card(t('Permissions'), [fwRow, btRow, steadyRow]),
       UI.card(t('This computer'), [deviceRow, sessRow, inRow, helperRow]),
+      UI.card(t('Advanced'), [protoRow]),
       UI.card(t('Quit'), [
         UI.row(t('Quit TwinDesk'), t('Stops sharing until you open it again'), [UI.button(t('Quit'), () => api.quit(), 'small')]),
       ], { cls: 'keep-on' }),
-    );
+    ]);
+    body.append(sections);
 
     return (s) => {
+      if (s.app) {
+        const proto = s.app.inputProtocol === 'tcp' ? 'tcp' : 'udp';
+        if (protoStart === null) protoStart = proto;
+        protoSel.set(proto);
+        protoRestart.hidden = proto === protoStart;
+      }
+      themeRow.render(s.look && s.look.theme);
+      accentRow.render(s.look);
+      sections.spy();
       media.update(s);
       wallSw.set(!s.phone || !s.phone.settings || s.phone.settings.wallpaper !== false);
       const ov = (s.ui && s.ui.overview) || {};

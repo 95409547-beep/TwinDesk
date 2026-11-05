@@ -150,12 +150,12 @@ async function onOffer(m) {
 
   try {
     await my.setRemoteDescription({ type: 'offer', sdp: m.sdp });
-    // H.264 first (hardware decode), as the PC offers it.
+    // H.265 when both have it, else H.264 first (hardware decode), as the PC offers it.
     for (const tr of my.getTransceivers()) {
       tr.direction = 'recvonly';
       if (tr.receiver.track.kind !== 'video' || !RTCRtpReceiver.getCapabilities) continue;
       const codecs = RTCRtpReceiver.getCapabilities('video').codecs;
-      tr.setCodecPreferences([...codecs.filter((c) => /h264/i.test(c.mimeType)), ...codecs.filter((c) => !/h264/i.test(c.mimeType))]);
+      tr.setCodecPreferences(window.TwinDeskScreenCodec.order(codecs)); // H.265 when listed, then H.264 (shared/screencodec.js)
     }
     await my.setLocalDescription(await my.createAnswer());
     if (my !== pc) return;
@@ -305,6 +305,7 @@ api.on((m) => {
       inputOn = m.on;
       document.body.classList.toggle('input-off', !inputOn);
       break;
+    case 'cursor': document.body.classList.toggle('own-cursor', !!m.own); break;
     case 'volume': video.volume = Math.max(0, Math.min(1, Number(m.volume))); break;
     case 'pacing':
       pacing = m.pacing === 'smooth' ? 'smooth' : 'fast';

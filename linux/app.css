@@ -2,7 +2,7 @@
 /* Same look as the Mac app (mac/control.css, System Settings style) so both windows match;
    Linux: copied from windows/app.css with a Linux font stack. */
 :root {
-  --accent: #0a84ff; --accent-soft: rgba(10, 132, 255, 0.12);
+  --accent: #0a84ff; --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
   --content: #f2f2f5; --card: #ffffff; --line: rgba(0, 0, 0, 0.08); --row-line: rgba(0, 0, 0, 0.06);
   --text: #1d1d1f; --muted: #6e6e73; --faint: #a1a1a6;
   --good: #30b94d; --warn: #e8a10c; --bad: #e5373a; --idle: #a1a1a6;
@@ -12,7 +12,7 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --accent-soft: rgba(10, 132, 255, 0.22);
+    --accent-soft: color-mix(in srgb, var(--accent) 22%, transparent);
     --content: #1e1e1f; --card: #2a2a2c; --line: rgba(255, 255, 255, 0.07); --row-line: rgba(255, 255, 255, 0.06);
     --text: #f5f5f7; --muted: #98989d; --faint: #6c6c70;
     --good: #32d74b; --warn: #ffb340; --bad: #ff453a; --idle: #6c6c70;
@@ -32,11 +32,11 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- sidebar ---------- */
 #sidebar { width: 220px; flex: none; padding: 16px 10px 12px; overflow-y: auto; border-right: 1px solid var(--line); }
 .identity { display: flex; align-items: center; gap: 14px; padding: 6px 8px 20px 4px; }
-.app-mark { /* the TwinDesk icon (shared/icon/teindesk-dark.png) */
+.app-mark { /* the TwinDesk icon (shared/icon/teindesk.png; teindesk-dark.png on a dark appearance) */
   width: 60px; height: 60px; flex: none;
   /* the whole icon, rendered from the 1024 px master at the exact size for each display scale */
-  background: image-set(url(assets/sidebar-icon@1x.png) 1x, url(assets/sidebar-icon@2x.png) 2x,
-    url(assets/sidebar-icon@3x.png) 3x, url(assets/sidebar-icon@4x.png) 4x) center / contain no-repeat;
+  background: image-set(url(assets/sidebar-icon-light@1x.png) 1x, url(assets/sidebar-icon-light@2x.png) 2x,
+    url(assets/sidebar-icon-light@3x.png) 3x, url(assets/sidebar-icon-light@4x.png) 4x) center / contain no-repeat;
 }
 .who { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 .app-name { font-weight: 700; font-size: 18px; line-height: 1.2; text-align: left; letter-spacing: -0.2px; }
@@ -307,3 +307,8 @@ input[type="text"]:focus, input[type="search"]:focus { outline: none; box-shadow
 .spin { width: 12px; height: 12px; flex: none; border: 2px solid var(--control-line); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .code-hint { font-variant-numeric: tabular-nums; color: var(--text); }
+
+/* The dark icon on a dark appearance (the light one above). */
+@media (prefers-color-scheme: dark) {
+  .app-mark { background-image: image-set(url(assets/sidebar-icon@1x.png) 1x, url(assets/sidebar-icon@2x.png) 2x, url(assets/sidebar-icon@3x.png) 3x, url(assets/sidebar-icon@4x.png) 4x); }
+}

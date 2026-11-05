@@ -21,7 +21,7 @@ function rig() {
  await r.handler({action:'capture',id:'one'});assert.equal(r.captureCalls,1);await r.handler({action:'stop'});const t=r.capture();await tick();assert(t.stopped,'late permission result closes tracks');assert(r.pcs[0].closed);
  }
  {
- const r=rig();await r.handler({action:'send',id:'one'});assert.deepEqual(r.sent.filter(m=>m.t).map(m=>m.t),['mic.offer','mic.ice']);r.connected();await r.handler({action:'capture',id:'one'});const t=r.capture();await tick();assert.equal(r.pcs[0].replaced,t);assert(r.sent.some(m=>m.action==='state'&&m.status==='connected'));await r.handler({action:'stop'});assert(t.stopped);
+ const r=rig();await r.handler({action:'send',id:'one'});assert.deepEqual(r.sent.filter(m=>m.t).map(m=>m.t),['ptt-mic.offer','ptt-mic.ice']);r.connected();await r.handler({action:'capture',id:'one'});const t=r.capture();await tick();assert.equal(r.pcs[0].replaced,t);assert(r.sent.some(m=>m.action==='state'&&m.status==='connected'));await r.handler({action:'stop'});assert(t.stopped);
  }
  {
  const r=rig();r.rejectSink();await r.handler({action:'receive',id:'one',output:'virtual-cable',sdp:'offer'});assert.equal(r.out.plays,0);assert.equal(r.out.srcObject,null);assert(r.pcs[0].closed);

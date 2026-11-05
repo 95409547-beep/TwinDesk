@@ -352,6 +352,23 @@ const UI = {
     return row;
   },
 
+  // The encoder this computer shares its screen with (shared/screencodec.js): set(v) saves it, for the
+  // next share. Returns the row with .render(value).
+  codecRow(set) {
+    const sel = UI.select([
+      { value: 'h264', label: 'H.264' },
+      { value: 'h265', label: 'H.265' },
+    ], (v) => set(v));
+    const row = UI.row(I18n.t('Codec'), '', [sel]);
+    row.render = (v) => {
+      v = v === 'h265' ? v : 'h264';
+      sel.set(v);
+      row.setHint(v === 'h265' ? I18n.t('H.265 only: {name} must decode it too, else nothing shows. From the next share')
+          : I18n.t('Works with every computer and phone'));
+    };
+    return row;
+  },
+
   // A template with {me}, {name}, {Name}, … filled from the current state.
   fill(t) {
     if (!t || !String(t).includes('{')) return t || '';
@@ -363,9 +380,9 @@ const UI = {
 
   // Small device glyph by OS: 'mac' | 'win' | 'linux' | 'android'.
   osClass: (os) => (os === 'mac' ? 'mac' : os === 'android' ? 'phone' : 'pc'),
-  // An app's icon in a grid: its own, else (none, or it doesn't load) TwinDesk's.
+  // An app's icon in a grid: its own, else (none, or it doesn't load) TwinDesk's, light or dark as the appearance.
   appIcon(src) {
-    const fallback = 'assets/sidebar-icon@2x.png';
+    const fallback = matchMedia('(prefers-color-scheme: dark)').matches ? 'assets/sidebar-icon@2x.png' : 'assets/sidebar-icon-light@2x.png';
     const img = UI.el('img', { src: src || fallback, alt: '' });
     img.onerror = () => { img.onerror = null; img.src = fallback; };
     return img;

@@ -143,7 +143,7 @@ class PhoneBridge extends EventEmitter {
       via: this.via, // 'usb' | 'wifi' | null: how adb reaches the phone
       input: this.inputVia, inputMode: this.inputMode, // the mouse and keyboard: what they go through now, and the choice
       control: !!(this.control && !this.control.closed), driving: !!this.kvm,
-      install: this.install, fullApk: !!fullApk(),
+      install: this.install, fullApk: !!fullApk(), appInstall: this.appInstall || null, // appInstall: Phone › Apps › Install Apps (shared/apkinstall.js)
       windows: this.views ? this.views.list() : [],
       // the phone's sound without adb: asked for, playing, waiting for Start on the phone, or why not
       sound: { net: this.netSound.asked, on: this.netSound.on, waiting: this.netSound.waiting, error: this.netSound.error },
@@ -187,9 +187,9 @@ class PhoneBridge extends EventEmitter {
   }
 
   _stopAll(message) {
+    if (this.kvm) this._kvmEnd(false); // before the control session goes: its button up and hover exit
     if (this.control) this.control.stop();
     this.control = null;
-    if (this.kvm) this._kvmEnd(false);
     if (this.views) this.views.closeAll();
     this.serial = null;
     this._set('off', message);
@@ -212,6 +212,8 @@ class PhoneBridge extends EventEmitter {
     const adb = this.state === 'ready';
     const net = want && (!adb || this.netSound.on) && c.transport !== 'ble';
     this.views.sound(want && adb && !net);
+    const audio = this.getSettings().audio || {};
+    this.views.mic(isPhone(c) && adb && !!audio.micReceive, audio.micOut || ''); // the phone's microphone, here
     if (net !== this.netSound.asked) {
       this.netSound.asked = net;
       if (!net) Object.assign(this.netSound, { on: false, waiting: false, error: '' });
@@ -457,6 +459,11 @@ class PhoneBridge extends EventEmitter {
     });
     await s.start();
     this.control = s;
+    // A session that ended without its hover exit (the Wi-Fi gone, the app quit) left Android a mouse
+    // hovering over the status bar or the gesture area. Any hover exit from here clears it; the
+    // pointer, if it's on the phone, hovers again just below.
+    const d0 = this._display();
+    if (d0) s.mouse(ACTION.HOVER_EXIT, 0, 0, d0.w, d0.h, 0, 0);
     this._set('ready');
     if (this.kvm) this._hover(); // taken while the connection was down: the pointer goes where it should be
   }
@@ -675,6 +682,9 @@ class PhoneBridge extends EventEmitter {
     console.log(`[phone] driving ends (${tellKvm ? 'the connection or the app ended it' : 'released or handed back'})`);
     const d = this._display();
     if (k.buttons && d && this.ctl) this.ctl.mouse(ACTION.UP, k.x, k.y, d.w, d.h, k.buttons, 0);
+    // The pointer leaves: without a hover exit Android keeps a mouse hovering where it was, and the
+    // phone's edges and gesture navigation stop answering until it restarts (#67, #118).
+    if (d && this.ctl) this.ctl.mouse(ACTION.HOVER_EXIT, k.x, k.y, d.w, d.h, 0, 0);
     for (const code of [...this.keys.held]) this._key({ t: T.K_KEY_UP, code });
     this.kvm = null;
     clearTimeout(this.pointerTimer);

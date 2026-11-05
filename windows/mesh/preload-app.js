@@ -7,6 +7,7 @@ const call = (name) => (...args) => ipcRenderer.invoke(name, ...args);
 contextBridge.exposeInMainWorld('macshare', {
   getState: call('getState'),
   setLanguage: call('setLanguage'),
+  setLook: call('setLook'), // General › Appearance: theme and accent colour
   onState: (fn) => ipcRenderer.on('state', (_e, s) => fn(s)),
   onShowUpdate: (fn) => ipcRenderer.on('show-update', () => fn()),
   onGo: (fn) => ipcRenderer.on('go', (_e, tab) => fn(tab)),
@@ -55,6 +56,8 @@ contextBridge.exposeInMainWorld('macshare', {
   clearHistory: call('clearHistory'),
   setTab: call('setTab'),
   setMulti: call('setMulti'),
+  relaunch: call('relaunch'),
+  setEncoder: call('setEncoder'),
   setAudio: call('setAudio'),
   microphone: call('microphone'),
   setTerminal: call('setTerminal'),
@@ -86,8 +89,10 @@ contextBridge.exposeInMainWorld('macshare', {
   phoneOpenApp: call('phoneOpenApp'),
   phoneCloseView: call('phoneCloseView'),
   phoneRetry: call('phoneRetry'),
+  phoneScreenAct: call('phoneScreenAct'),
   phoneAppMenu: call('phoneAppMenu'),
   phoneInstallFull: call('phoneInstallFull'),
+  phoneInstallApps: call('phoneInstallApps'),
   phoneAssets: call('phoneAssets'),
   setPcApps: call('setPcApps'),
   setMacApps: call('setMacApps'),

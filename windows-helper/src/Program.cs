@@ -5,6 +5,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
 using System.Reflection;
@@ -35,11 +36,15 @@ namespace MacShare
         static int Main(string[] args)
         {
             if (args.Length == 3 && args[0] == "--add-root-device") return Display.AddRootDevice(args[1], args[2]); // elevated, scripts\vdd-install.ps1
+            if (args.Length == 2 && args[0] == "--cursor-guard") return CursorGuard(args[1]);
             // Per-monitor v2: every coordinate is in physical pixels.
             try { if (!Native.SetProcessDpiAwarenessContext(new IntPtr(-4))) Native.SetProcessDPIAware(); }
             catch (Exception) { Native.SetProcessDPIAware(); }
             Console.InputEncoding = new UTF8Encoding(false);
             Console.OutputEncoding = new UTF8Encoding(false);
+            // The mouse hook and the lane's injection run managed code: no blocking full collections
+            // (background ones only), so a collection doesn't hold a move or a click.
+            try { System.Runtime.GCSettings.LatencyMode = System.Runtime.GCLatencyMode.SustainedLowLatency; } catch (Exception) { }
 
             invoker = new Control();
             invoker.CreateControl();
@@ -53,7 +58,10 @@ namespace MacShare
             injector.Moved = capture.FeedReturn;
             injector.Stops = capture.ReturnStops;
             smoother = new Smoother(delegate (double x, double y) { invoker.BeginInvoke((MethodInvoker)delegate { injector.Move(x, y); }); });
+            Action<double, double> laneMove = injector.Move; // one delegate, not one per move
+            Lane.Init(delegate (double x, double y) { smoother.Flush(laneMove); laneMove(x, y); }, Emit); // the input lane (Lane.cs)
             HideCursor.Restore(); // in case a crash left the cursors blank
+            StartCursorGuard();
             capture.Start();
             capture.Flash = new Flash();
             AppWindows.Watch(delegate { Dictionary<string, object> e = new Dictionary<string, object>(); e["event"] = "winShown"; Emit(e); }); // Menus
@@ -72,6 +80,40 @@ namespace MacShare
             ready["event"] = "ready";
             Emit(ready);
             Application.Run(new ApplicationContext());
+            return 0;
+        }
+
+        // The blank cursor (HideCursor.cs) is system-wide: it outlives this process. A clean exit and a
+        // managed exception restore it here, but a hard kill can't (the app crashing takes us down with
+        // it: Node's job object terminates its children). So a second copy of this exe waits for us to
+        // end, however we end, and reloads the user's cursors then. Started with ShellExecute: it
+        // inherits none of our handles (the app's pipes see us close at once) and, as Node's job allows
+        // silent breakaway, it is outside that job and lives on when the job is killed.
+        static void StartCursorGuard()
+        {
+            try
+            {
+                ProcessStartInfo si = new ProcessStartInfo(Application.ExecutablePath, "--cursor-guard " + Process.GetCurrentProcess().Id);
+                si.UseShellExecute = true;
+                si.WindowStyle = ProcessWindowStyle.Hidden;
+                Process.Start(si);
+            }
+            catch (Exception) { /* no guard: the next helper start still restores the cursors */ }
+        }
+
+        static int CursorGuard(string pidText)
+        {
+            int pid;
+            if (!int.TryParse(pidText, out pid)) return 1;
+            try { using (Process p = Process.GetProcessById(pid)) p.WaitForExit(); }
+            catch (Exception) { /* already gone */ }
+            HideCursor.Restore();
+            // A UAC prompt or the lock screen in front: try again for a while, until it works.
+            for (int i = 0; i < 120 && HideCursor.Pending; i++)
+            {
+                Thread.Sleep(500);
+                HideCursor.Restore();
+            }
             return 0;
         }
 
@@ -209,6 +251,7 @@ namespace MacShare
                         Async(c, delegate (Dictionary<string, object> r) { r["installed"] = DoubaoInputMethod.IsInstalled(); });
                         return;
                     case "kvmConfig":
+                        capture.TakeBack = Json.Bool(c, "takeBack", true);
 #if MULTI
                         // sides: every side that leads to a connected device (CaptureMulti.cs); without it, the one side.
                         List<string> sides = Json.Strs(c, "sides");
@@ -269,6 +312,7 @@ namespace MacShare
                         smoother.Flush(injector.Move); // a click or key lands where the pointer ends up
                         injector.Apply(ev);
                         break;
+                    case "lane": Lane.Handle(c); break; // the input lane in the helper (Lane.cs)
                     case "releaseAll": smoother.Clear(); stylus.Leave(); injector.ReleaseAll(); break;
                     case "toastProgress": // a live toast with a progress bar (Toast.cs)
                         Toast.Progress(Json.Str(c, "aumid", ""), Json.Str(c, "tag", "files"), Json.Str(c, "title", ""), Json.Str(c, "status", ""), Json.Num(c, "value", -1), Json.Str(c, "label", ""));
@@ -282,6 +326,7 @@ namespace MacShare
                         if (st != null) stylus.At((int)Json.Num(c, "x", 0), (int)Json.Num(c, "y", 0), st);
                         break;
                     case "displays": c["displays"] = Display.List(); break;
+                    case "wifiLowLatency": c["applied"] = Wlan.Set(Json.Bool(c, "on", false)); break; // Wlan.cs: media streaming mode, no background scans
                     case "displayExtend": c["changed"] = Display.ExtendIfDuplicated(Json.Str(c, "monitor", "")); break;
                     // PC apps on the Mac
                     case "windows": Async(c, delegate (Dictionary<string, object> r) { r["windows"] = AppWindows.List(); }); return;
@@ -348,6 +393,21 @@ namespace MacShare
                         break;
                     case "winRaise": AppWindows.Raise(Json.Num(c, "wid", 0)); break;
                     case "winClose": AppWindows.Close(Json.Num(c, "wid", 0)); break;
+                    case "moveWin": // Apps › Move windows: the key held to grab a window, "" = off
+                        {
+                            string mk = Json.Str(c, "key", "");
+                            AppWindows.MoveKeyName = mk;
+                            // The key and its Ctrl/Win partner: a Mac's Right Command arrives as Right Ctrl with
+                            // Ctrl/Cmd swapping on, else as the Windows key (Grab.swift does the same the other way).
+                            HashSet<uint> mv = string.IsNullOrEmpty(mk) ? new HashSet<uint>() : HotkeyVks(mk);
+                            string partner = mk == "ControlRight" ? "MetaRight" : mk == "MetaRight" ? "ControlRight" : mk == "ControlLeft" ? "MetaLeft" : mk == "MetaLeft" ? "ControlLeft" : "";
+                            if (partner.Length > 0) mv.UnionWith(HotkeyVks(partner));
+                            AppWindows.MoveVks = new List<uint>(mv).ToArray();
+                        }
+                        break;
+                    case "winEndMove": AppWindows.EndMove(Json.Num(c, "wid", 0)); break;
+                    case "winPark": AppWindows.Park(Json.Num(c, "wid", 0)); break;
+                    case "winPlace": AppWindows.Place(Json.Num(c, "wid", 0), (int)Json.Num(c, "x", 0), (int)Json.Num(c, "y", 0)); break;
                     case "winSize": AppWindows.Resize(Json.Num(c, "wid", 0), (int)Json.Num(c, "w", 0), (int)Json.Num(c, "h", 0)); break;
                     case "winMove":
                         Point wp = AppWindows.PointIn(Json.Num(c, "wid", 0), Json.Num(c, "x", 0), Json.Num(c, "y", 0));
@@ -429,6 +489,7 @@ namespace MacShare
                         smoother.Flush(injector.Move);
                         Injector.Type(Json.Str(c, "text", ""));
                         break;
+                    case "caps": c["on"] = Native.Caps(Json.Has(c, "set") ? (bool?)Json.Bool(c, "set", false) : null); break; // Caps Lock, as the other computer's (#131)
                     case "info":
                         Native.POINT cur;
                         Native.GetCursorPos(out cur);
@@ -447,6 +508,9 @@ namespace MacShare
             if (error != null) reply["error"] = error;
             if (cmd == "info") { reply["cursor"] = c["cursor"]; reply["capturing"] = c["capturing"]; }
             if (cmd == "displays") reply["displays"] = c["displays"];
+            if (cmd == "caps" && c.ContainsKey("on")) reply["on"] = c["on"];
+            if (cmd == "lane" && c.ContainsKey("port")) reply["port"] = c["port"];
+            if (cmd == "wifiLowLatency" && c.ContainsKey("applied")) reply["applied"] = c["applied"];
             if ((cmd == "displayMode" || cmd == "displayExtend") && error == null) reply["changed"] = c["changed"];
             if (cmd == "folderAt") { reply["path"] = c["path"]; reply["desktop"] = c["desktop"]; }
             if (cmd == "keyLayout")

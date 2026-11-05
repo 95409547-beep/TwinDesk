@@ -55,7 +55,7 @@ function offer(source, target) {
   const mic = source.mic.peers.get(target.id);
   const event = { sender: mic.win.webContents };
   mic.fromWindow(event, { action: 'ready' });
-  mic.fromWindow(event, { t: 'mic.offer', id: mic.tx.id, sdp: 'test-offer' });
+  mic.fromWindow(event, { t: 'ptt-mic.offer', id: mic.tx.id, sdp: 'test-offer' });
 }
 
 (async () => {
@@ -87,7 +87,7 @@ function offer(source, target) {
   const aToB = a.mic.peers.get(b.id);
   b.mic.configure({ receive: true, output: 'cable-b' }, a.id);
   a.hub.bus.send(b.id, {
-    t: 'mic.offer', id: '11111111-1111-4111-8111-111111111111', epoch: aToB.epoch,
+    t: 'ptt-mic.offer', id: '11111111-1111-4111-8111-111111111111', epoch: aToB.epoch,
     target: b.mic.peers.get(a.id).epoch, route: b.kvm.peerRoute, sdp: 'wrong-owner',
   });
   await flush();

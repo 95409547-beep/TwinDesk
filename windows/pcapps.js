@@ -4,7 +4,8 @@
 // kind 'window', sender.js) while the Mac's `papp.policy` accepts and "Let the Mac open this PC's
 // apps" is on — menus, drop-downs and other pop-ups too, as `popup` entries with their `owner` and
 // offset, so the Mac draws them over the right window. The Mac's input in such a window (`in.*` +
-// `wid`) is injected at that window.
+// `wid`) is injected at that window. ReZume sends an app that's already open the same way (adopt):
+// its windows only while ReZume lets it (not this tab's switch), and closing one there stops only that.
 const { desktopCapturer, screen: displays } = require('electron');
 const { spawn } = require('child_process');
 const path = require('path');
@@ -50,6 +51,7 @@ class PcApps {
     this.icons = new Map(); // id → data URL
     this.launched = new Map(); // id → {id, exe, pids: Set, since, before: Set(wid), had, lastSeen}
     this.windows = []; // the list last sent to the Mac
+    this.moved = new Map(); // wid → {x, y, w, h, pid}: windows moved to the other computer (moveOut), and where they were
     this.streams = new Map(); // wid → session
     this.failed = new Set(); // wids whose capture failed (not retried)
     this.timer = null;
@@ -59,7 +61,7 @@ class PcApps {
 
     const link = this.link;
     link.on('welcome', () => { this.generation++; this.macAccepts = false; this.sentKey = ''; });
-    link.on('closed', () => { this.generation++; clearTimeout(this.timer); this.timer = null; this.macAccepts = false; this.launched.clear(); this._sync([]); });
+    link.on('closed', () => { this.generation++; clearTimeout(this.timer); this.timer = null; this.macAccepts = false; this.launched.clear(); this.bringBack(); this._sync([]); });
     link.on(T.PAPP_POLICY, (m) => {
       this.macAccepts = m.accept === true;
       if (this.macAccepts && this.allowed) this._build().catch(() => {}); // icons ready before the Mac asks
@@ -69,7 +71,9 @@ class PcApps {
     link.on(T.PAPPS_LIST, () => this._list());
     link.on(T.PAPP_LAUNCH, (m) => typeof m.id === 'string' && this._launch(m.id));
     link.on(T.PAPP_FOCUS, (m) => this._mine(m.wid) && !this._popup(m.wid) && this._raise(m.wid));
-    link.on(T.PAPP_CLOSE, (m) => this._mine(m.wid) && this.helper.send('winClose', { wid: m.wid }));
+    // Closing a moved window's copy over there brings it back here (it isn't closed); one ReZume sent stays open here.
+    link.on(T.PAPP_CLOSE, (m) => this._mine(m.wid) && (this.moved.has(m.wid) ? this.bringBack(m.wid) : this._unfollow(m.wid) || this.helper.send('winClose', { wid: m.wid })));
+    link.on(T.PAPP_RETURN, (m) => this.moved.has(m.wid) && this.bringBack(m.wid, true));
     link.on(T.PAPP_SIZE, (m) => {
       const ok = (v) => Number.isInteger(v) && v >= 50 && v <= 16384;
       if (this._mine(m.wid) && !this._popup(m.wid) && ok(m.w) && ok(m.h)) this.helper.send('winSize', { wid: m.wid, w: m.w, h: m.h });
@@ -77,6 +81,7 @@ class PcApps {
     for (const t of RemoteInput.TYPES) link.on(t, (m) => this._input(m));
     // A top-level window appeared or went (a menu opened?): look right away instead of at the next tick.
     this.helper.on('event', (name) => name === 'winShown' && this.launched.size && this._poll(true));
+    this.helper.on('ready', () => this._moveKey()); // a restarted helper is told the move key again
     this.sender.on('state', (session, s) => {
       if (s.status !== 'ended' && s.status !== 'failed') return;
       for (const [wid, ses] of this.streams) {
@@ -92,14 +97,58 @@ class PcApps {
     return this.settings.pcApps.allow;
   }
 
-  // The switch changed. Off: nothing is followed or streamed any more (the apps keep running).
+  // An app followed for ReZume (adopt), which this tab's switch doesn't stop.
+  get rezumes() {
+    for (const a of this.launched.values()) if (a.rz) return true;
+    return false;
+  }
+
+  // The switch changed. Off: nothing is followed or streamed any more (the apps keep running), but
+  // what ReZume sent.
   apply() {
     this.generation++;
+    if (!this.settings.pcApps.moveWindows) this.bringBack(); // moving is its own switch, apart from letting the other open apps
+    this._moveKey();
     if (!this.allowed) {
-      this.launched.clear();
-      this._sync([]);
+      for (const [id, a] of this.launched) if (!a.rz) this.launched.delete(id);
+      if (this.launched.size) this._poll(true);
+      else this._sync([]);
     }
     this.onChange();
+  }
+
+  // ReZume: the windows of an app that's open here (its exe), streamed to the other computer.
+  adopt(exe) {
+    if (this.stopped || typeof exe !== 'string' || !/\.exe$/i.test(exe) || this.link.status.state !== 'connected') return false;
+    const key = exe.toLowerCase();
+    for (const a of this.launched.values()) {
+      if (a.exe !== key) continue;
+      if (a.skip) a.skip.clear();
+      this._poll(true);
+      return true;
+    }
+    this.launched.set(exe, { id: exe, exe: key, rz: true, skip: new Set(), pids: new Set(), since: Date.now(), had: false, lastSeen: 0, before: new Set(), beforePids: new Set() });
+    this._poll(true);
+    return true;
+  }
+
+  // ReZume's window sharing off (app: only that one's): its windows stop going.
+  unadopt(app) {
+    let any = false;
+    for (const [id, a] of this.launched) if (a.rz && (!app || a.id === app)) { this.launched.delete(id); any = true; }
+    if (any) this._poll(true);
+  }
+
+  // A window ReZume sent, closed there: only its copy goes. The window stays open here and comes
+  // back to the front (it never left this screen).
+  _unfollow(wid) {
+    const w = this.windows.find((x) => x.wid === wid);
+    const a = w && this.launched.get(w.id);
+    if (!a || !a.rz) return false;
+    a.skip.add(wid);
+    this._raise(wid);
+    this._poll(true);
+    return true;
   }
 
   _mine(wid) {
@@ -113,6 +162,31 @@ class PcApps {
   _raise(wid) {
     this.lastRaised = wid;
     this.helper.send('winRaise', { wid });
+  }
+
+  // The helper grabs a window with the move key and a click (AppWindows.TryGrab); "" = off.
+  _moveKey() {
+    const c = this.settings.pcApps;
+    this.helper.send('moveWin', { key: c.moveWindows ? c.moveKey : '' });
+  }
+
+  // Move windows (shared/movewin.js, loaded only when used): a grabbed window crossed with the
+  // pointer goes over there; bringBack returns one or all of them.
+  moveOut(wid, from) {
+    if (!this.settings.pcApps.moveWindows) return Promise.resolve(false);
+    return require('../shared/movewin.js').moveOut(this, wid, from);
+  }
+
+  bringBack(wid, home = false) {
+    if (this.moved.size) require('../shared/movewin.js').bringBack(this, wid, home);
+  }
+
+  _cursorPx() {
+    return displays.dipToScreenPoint(displays.getCursorScreenPoint());
+  }
+
+  _movedExtra(w) {
+    return workArea(w);
   }
 
   async _apps() {
@@ -163,7 +237,7 @@ class PcApps {
   }
 
   _current(generation) {
-    return !this.stopped && this.allowed && this.generation === generation && this.link.status.state === 'connected';
+    return !this.stopped && (this.allowed || this.rezumes || this.moved.size > 0) && this.generation === generation && this.link.status.state === 'connected';
   }
 
   async _launch(id) {
@@ -217,7 +291,7 @@ class PcApps {
       try {
         do {
           this.again = false;
-          if (!this.launched.size || !this._current(this.generation)) return this._sync([]);
+          if ((!this.launched.size && !this.moved.size) || !this._current(this.generation)) return this._sync([]);
           const generation = this.generation;
           const r = await this.helper.request('windows').catch(() => null);
           if (!this._current(generation)) return;
@@ -226,7 +300,7 @@ class PcApps {
       } finally {
         this.ticking = false;
       }
-      if (this._current(this.generation) && this.launched.size && !this.timer) this.timer = setTimeout(tick, POLL_MS);
+      if (this._current(this.generation) && (this.launched.size || this.moved.size) && !this.timer) this.timer = setTimeout(tick, POLL_MS);
     };
     this.timer = setTimeout(tick, 0);
   }
@@ -239,9 +313,10 @@ class PcApps {
     const out = [];
     const pops = [];
     const taken = new Set();
+    if (this.moved.size) require('../shared/movewin.js').list(this, all, taken, out, pops); // moved windows (Move windows)
     for (const a of this.launched.values()) {
       const id = a.id.toLowerCase();
-      const mine = all.filter((w) => !taken.has(w.wid) && ((w.aumid && w.aumid.toLowerCase() === id)
+      const mine = all.filter((w) => !taken.has(w.wid) && !(a.skip && a.skip.has(w.wid)) && ((w.aumid && w.aumid.toLowerCase() === id)
         || (a.exe && String(w.exe).toLowerCase() === a.exe) || a.pids.has(w.pid) || a.pids.has(w.ppid)));
       let main = mine.filter((w) => !w.popup);
       if (!main.length && !a.exe && now - a.since > 1500 && now - a.since < 20000) {
@@ -314,8 +389,12 @@ class PcApps {
   _input(m) {
     if (m.wid == null || !this.streams.has(m.wid)) return;
     const wid = m.wid;
+    // A moved window (or its pop-up): back on a screen while it's used there, so the pointer reaches it.
+    const pop = this.windows.find((w) => w.wid === wid && w.popup);
+    const moved = this.moved.has(wid) ? wid : pop && this.moved.has(pop.owner) ? pop.owner : 0;
+    if (moved) require('../shared/movewin.js').touch(this, moved);
     // A pop-up is never raised (that would close a menu); its owner is already in front.
-    this.input.handle(m, (x, y) => this.helper.send('winMove', { wid, x, y }), this._popup(wid) ? null : () => this._raise(wid));
+    this.input.handle(m, (x, y) => this.helper.send('winMove', { wid, x, y }), this._popup(wid) ? null : () => this._raise(wid), undefined, !!moved);
   }
 
   // Quit: stop the window streams (the apps keep running on the PC).
@@ -328,12 +407,13 @@ class PcApps {
     this.windows = [];
     this.input.release();
     this.launched.clear();
+    this.bringBack(); // quitting: every moved window back here
     for (const session of this.streams.values()) this.sender.stop(session);
     this.streams.clear();
   }
 
   view() {
-    return { allow: this.allowed, macAccepts: this.macAccepts, open: this.windows.length, streaming: this.streams.size, message: this.message };
+    return { allow: this.allowed, macAccepts: this.macAccepts, open: this.windows.length, streaming: this.streams.size, moved: this.moved.size, moveWindows: this.settings.pcApps.moveWindows, moveKey: this.settings.pcApps.moveKey, message: this.message };
   }
 }
 

@@ -69,6 +69,7 @@ func handle(_ line: String) {
     reply(id)
   case "kvmConfig":
     Capture.shared.edgeZones = zones(msg["zones"])
+    Capture.shared.takeBack = (msg["takeBack"] as? Bool) ?? true
     guard Capture.shared.startTap() else { return replyError(id, "event tap failed (Accessibility / Input Monitoring)") }
     Flash.shared.prepare()
 #if MULTI
@@ -119,8 +120,14 @@ func handle(_ line: String) {
     reply(id)
   case "inject":
     if let ev = msg["ev"] as? [String: Any] { injector.injectRel(ev) }
+#if TDFAST
+  case "lane": // the input lane (Lane.swift, native/tdfast)
+    NativeLane.shared.handle(msg, id: id)
+#endif
   case "ping":
     reply(id)
+  case "caps": // Caps Lock, as the other computer's (#131)
+    reply(id, ["on": injector.caps(set: msg["set"] as? Bool)])
   case "keyLayout": // what each key types alone and with Shift in the current layout (shared/keylayout.js); type: it takes "type"
     let source = msg["source"] as? String
     var r: [String: Any] = ["layout": KeyLayout.current(sourceID: source), "shift": KeyLayout.current(sourceID: source, shift: true),
@@ -233,6 +240,12 @@ func handle(_ line: String) {
                                    width: b["width"]?.doubleValue ?? 0, height: b["height"]?.doubleValue ?? 0))
     }
     reply(id)
+  case "appPlace":
+    reply(id, ["done": Apps.place(wid: (msg["wid"] as? NSNumber)?.intValue ?? 0,
+                                  x: (msg["x"] as? NSNumber)?.doubleValue ?? 0, y: (msg["y"] as? NSNumber)?.doubleValue ?? 0)])
+  case "moveWin": // Apps › Move windows: the key held to grab a window, "" = off
+    WindowGrab.shared.setKey((msg["key"] as? String) ?? "")
+    reply(id)
   case "appFocus":
     reply(id, ["done": Apps.focus(wid: (msg["wid"] as? NSNumber)?.intValue ?? 0)])
   case "appClose":
@@ -299,9 +312,14 @@ DispatchQueue.global().async {
   }
 }
 
-signal(SIGTERM) { _ in
-  PointerVisibility.show() // never leave the pointer hidden
-  exit(0)
+// Killed or hung up: never leave the pointer hidden or frozen. (A crash ends our WindowServer
+// connection, which shows the pointer and frees it by itself; main's helper.on('exit') goes home.)
+for sig in [SIGTERM, SIGINT, SIGHUP] {
+  signal(sig) { _ in
+    CGAssociateMouseAndMouseCursorPosition(1)
+    PointerVisibility.show()
+    exit(0)
+  }
 }
 signal(SIGPIPE, SIG_IGN) // main closed a pipe (e.g. the audio fd): just stop writing
 NSApplication.shared.setActivationPolicy(.prohibited)

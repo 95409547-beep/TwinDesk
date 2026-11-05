@@ -115,6 +115,7 @@
       KVM_LOCK: 'kvm.lock', // either {on}: the cursor is locked on the device it is on (shared/cursorlock.js); sent only while one drives the other
       KVM_DISPLAYS: 'kvm.displays', // either {displays: [{id, x, y, w, h, scale, primary, name}]}: our monitors (shared/kvm-geom.js), on connect and when they change
       KVM_IDENTIFY: 'kvm.identify', // either {}: show each monitor's number on it for a moment (the Cursor tab's Identify)
+      KVM_CAPS: 'kvm.caps', // either {on}: my Caps Lock as I hand my input over (take, or home); the other side turns its own that way (shared/capsync.js, #131)
       KVM_NEXT: 'kvm.next', // multi-device: {route, to, side, offset}: a device we drive reached an edge that leads to device `to` (docs/mesh.md)
       K_MOVE: 'k.mm',
       K_DOWN: 'k.md',
@@ -182,6 +183,12 @@
       AUDIO_ANSWER: 'audio.answer', // receiver->sender {dir, session, sdp}
       AUDIO_ICE: 'audio.ice', // either {dir, session, candidate}
       AUDIO_STOP: 'audio.stop', // sender->receiver {dir}
+      // Audio › Microphone (shared/mic.js): each side's microphone on the other, either way on its own
+      MIC_POLICY: 'mic.policy', // either {accept, ask?}: it uses the other's microphone; ask: send yours back (just loaded)
+      MIC_OFFER: 'mic.offer', // sender->receiver {session, sdp}
+      MIC_ANSWER: 'mic.answer', // receiver->sender {session, sdp}
+      MIC_ICE: 'mic.ice', // either {session, to: 'recv'|'send', candidate}
+      MIC_STOP: 'mic.stop', // sender->receiver {}
       // Camera sharing between two computers (shared/camshare.js, the Camera tab): one's camera in a
       // window on the other, WebRTC set up through these, the picture straight between them.
       CAM_POLICY: 'cam.policy', // either way, after welcome and on change {share}: this side lets the other see its camera
@@ -216,8 +223,9 @@
       PAPP_FOCUS: 'papp.focus', // M->W {wid}
       PAPP_CLOSE: 'papp.close', // M->W {wid}
       PAPP_SIZE: 'papp.size', // M->W {wid, w, h} physical px
+      PAPP_RETURN: 'papp.return', // M->W {wid}: a window moved here (papp.windows moved: true) goes back, dragged past the edge home
       // A phone (os 'android') as the peer
-      PHONE_INFO: 'phone.info', // phone->Mac {model, maker, sdk, release, battery?, charging?, colors: ['#rrggbb'], wallpaper?: data URL (small JPEG)}
+      PHONE_INFO: 'phone.info', // phone->Mac {model, maker, sdk, release, battery?, charging?, colors: ['#rrggbb'], wallpaper?: data URL (small JPEG), app? (versionName), caps?: ['mirror.native', …] (what it can do without wireless debugging; an older app sends none)}
       PHONE_APPS_LIST: 'phone.apps.list', // Mac->phone
       PHONE_APPS: 'phone.apps', // phone->Mac {apps: [{id (package), name, icon (data URL PNG)}]}
       PHONE_POINTER: 'phone.pointer', // Mac->phone {on, x?, y?}: where the Mac's pointer is while it drives the phone (the app draws it)
@@ -233,6 +241,12 @@
       PHONE_SOUND_WANT: 'phone.sound.want', // computer->phone {on}: its sound here without wireless debugging (playback capture, Start on the phone), while adb can't carry it
       PHONE_SOUND: 'phone.sound', // phone->computer {codec: 'opus'|'pcm', p: [base64]}: 20 ms each (Opus packets, or 48 kHz stereo s16le)
       PHONE_SOUND_STATE: 'phone.sound.state', // phone->computer {on, waiting (for Start on the phone), error, codec}
+      // The phone's screen without wireless debugging (shared/nativescreen.js, Mirror.kt): the phone
+      // captures it itself (one Start on the phone for the screen and its sound) and sends H.264 over
+      // HTTPS to the session's port (POST /twindesk/mirror, header x-twindesk-mirror: key), in
+      // scrcpy's 12-byte packets. Only to a phone whose phone.info caps has 'mirror.native'.
+      PHONE_MIRROR_WANT: 'phone.mirror.want', // computer->phone {on, key (a secret for the stream), maxSize, bitrate (b/s), fps} | {on, sync: true} (a keyframe now)
+      PHONE_MIRROR_STATE: 'phone.mirror.state', // phone->computer {on, waiting (for Start on the phone), error, w, h (the picture), sw, sh (the screen, for phone.in)}
       // What plays on the phone, for the Overview's media controls (shared/nowplaying.js, NowPlaying.kt):
       PHONE_MEDIA_WANT: 'phone.media.want', // computer->phone {on}: send phone.media (Audio › Media controls on Overview)
       PHONE_MEDIA: 'phone.media', // phone->computer {app, appName, title, artist, album, playing, duration, position, at, speed, next, prev, seek, art?} or {none, why?}; art (a data: URL) only when it changed
@@ -254,13 +268,14 @@
       REMOTE_PAD: 'remote.pad',
       // ReZume (shared/rezume.js, ReZume.kt): what is in use on one side, to go on with on the other.
       // Off until turned on on both sides; offers go only to a side whose rz.policy says on.
-      RZ_POLICY: 'rz.policy', // either way, after welcome and on change {on, web, docs, apps, push}: this side takes the other's ReZume offers (and of which kinds)
-      // sender->receiver {id, kind: 'web'|'doc'|'app', title, url? (web), name?, size? (doc), app (bundle id, exe or package), appName, icon? (small PNG data: URL), at, push?}:
-      // the tab, document or phone app in use there (kept until another or rz.clear); push: sent on purpose (Send to / Open on computer), opened at once
+      RZ_POLICY: 'rz.policy', // either way, after welcome and on change {on, web, docs, apps, push, windows}: this side takes the other's ReZume offers (and of which kinds; windows: an app's window, computers only)
+      // sender->receiver {id, kind: 'web'|'doc'|'app'|'window', title, url? (web), name?, size? (doc), app (bundle id, exe or package), appName, icon? (small PNG data: URL), at, push?}:
+      // the tab, document, phone app or app window in use there (kept until another or rz.clear); push: sent on purpose (Send to / Open on computer), opened at once.
+      // A window taken is streamed as the Apps tab's are (papp.windows + rtc2 kind 'window', or app.windows from a Mac to a PC); closing it there only stops that.
       RZ_OFFER: 'rz.offer',
       RZ_CLEAR: 'rz.clear', // sender->receiver {id}: nothing to go on with any more
-      RZ_TAKE: 'rz.take', // receiver->sender {id}: taken; a doc's file follows as file.offer drop 'rezume', batch 'rz-<id>' (only to a side that asked)
-      RZ_DONE: 'rz.done', // sender->receiver {id, ok, why?}: a doc that couldn't be sent (gone, too big)
+      RZ_TAKE: 'rz.take', // receiver->sender {id}: taken; a doc's file follows as file.offer drop 'rezume', batch 'rz-<id>' (only to a side that asked); a window's are streamed
+      RZ_DONE: 'rz.done', // sender->receiver {id, ok, why?}: a doc or window that couldn't be sent (gone, too big, not let through); ok: a window went
       PHONE_SEND: 'phone.send', // computer->phone: clicks the active app's Send button
       PHONE_ACTIVE_APP: 'phone.activeApp', // phone->computer {pkg}: current foreground package
       // Wireless debugging (adb), which the Mac uses for the screen, touch, mouse and keyboard,
@@ -268,7 +283,7 @@
       ADB_STATE: 'adb.state', // phone->Mac {devOptions, wifi (wireless debugging on), canEnable (WRITE_SECURE_SETTINGS granted), address, full, port (its wireless debugging port from its own mDNS, 0 if not known yet), net (on a Wi-Fi network: wireless debugging can't be on without one)}
       ADB_ENABLE: 'adb.enable', // Mac->phone {on}: switch wireless debugging (needs canEnable)
       ADB_PAIR: 'adb.pair', // phone->computer {code, port?}: the code from "Pair device with pairing code", typed on the phone (port: its pairing port, 0 if unknown)
-      ADB_BRIDGE: 'adb.bridge', // computer->phone {state, message}: how the computer's wireless debugging link is doing (off|missing|waitingWifi|needsPair|connecting|ready|error), viewed, camera {on, facing, error, virtual} (its camera running there, for its Camera page)
+      ADB_BRIDGE: 'adb.bridge', // computer->phone {state, message}: how the computer's wireless debugging link is doing (off|missing|waitingWifi|needsPair|connecting|ready|error), viewed, camera {on, facing, error, virtual} (its camera running there, for its Camera page), need? (bool: something here uses wireless debugging; false: the phone doesn't switch it on or ask for it; an older computer never says, and the phone does as before)
       // A session through Bluetooth moves onto Wi-Fi for files and screens (shared/netlink.js): one
       // side hosts a network (Wi-Fi Direct group / Windows' legacy access point), the other joins
       // it, and the guest moves the session onto it (hello {resume}, below) without ending it.
@@ -286,21 +301,22 @@
       HUB_ASK: 'hub.ask', // computer->phone {what: 'calls'|'messages'|'media'|'files'|'bt'}: ask the person on the phone for that one's permissions
       HUB_SET: 'hub.set', // phone->computer {what, on}: switched on or off on the phone
       HUB_BT: 'hub.bt', // computer->phone {address, unpair?}: this computer's Bluetooth address (is the phone paired with it?); unpair: forget it (classic and LE). phone->computer {unpair: true}: Forget on the phone, the computer forgets it too. Pairing itself is the person's, in Bluetooth settings
-      CALL_STATE: 'call.state', // phone->computer {state: 'idle'|'ringing'|'offhook', number, name, photo?, dir: 'in'|'out', since}
-      CALL_DO: 'call.do', // computer->phone {a: 'dial'|'answer'|'end'|'mute', number?, on?}
-      CALL_DONE: 'call.done', // phone->computer {a, ok, error?}
+      CALL_STATE: 'call.state', // phone->computer {state: 'idle'|'ringing'|'offhook', number, name, photo?, dir: 'in'|'out', since, held?, silenced?, can?: ['hold'|'dtmf'|'silence']}
+      CALL_DO: 'call.do', // computer->phone {a: 'dial'|'answer'|'end'|'mute'|'hold'|'dtmf'|'silence', number?, sim?, on?, key?} (a number with * or # opens the phone's dialer: onPhone in call.done)
+      CALL_DONE: 'call.done', // phone->computer {a, ok, error?, onPhone?}
       CALL_LOG: 'call.log', // computer->phone {n} | phone->computer {items: [{number, name, type: 'in'|'out'|'missed'|'rejected'|'blocked', at, dur}]}
       CONTACTS: 'contacts', // computer->phone {q} | phone->computer {q, items: [{name, numbers: [{n, label}]}]}
       SMS_THREADS: 'sms.threads', // computer->phone {n} | phone->computer {items: [{id, addrs, name, snippet, at, unread, out}]}
       SMS_THREAD: 'sms.thread', // computer->phone {id, before?, n} | phone->computer {id, before, items: [{id, body, at, out, from, status, parts?: [{id, type}]}], more}
       SMS_PART: 'sms.part', // computer->phone {id}: an MMS picture | phone->computer {id, data}
-      SMS_SEND: 'sms.send', // computer->phone {to, body, ref}
+      SMS_SEND: 'sms.send', // computer->phone {to, body, ref, sim? (a subscription id from hub.state messages.sims), addrs? (a group: everyone, 2–20), image? (a JPEG data: URL)}: with addrs or image, an MMS (hub.state messages.mms)
       SMS_SENT: 'sms.sent', // phone->computer {ref, ok, error?}
       SMS_NEW: 'sms.new', // phone->computer {thread, summary, msg}: a message arrived or was sent on the phone
       MEDIA_LIST: 'media.list', // computer->phone {kind: 'all'|'photos'|'videos'|'screenshots', before?, n} | phone->computer {kind, before, items: [{id, video, at, w, h, size, name, dur, album}], more}
       MEDIA_THUMB: 'media.thumb', // computer->phone {ids}: these next (the ones still waiting are dropped) | phone->computer {id, data}
       MEDIA_VIEW: 'media.view', // computer->phone {id} | phone->computer {id, data}: a big preview
       MEDIA_SAVE: 'media.save', // computer->phone {ids}: send these files here (they come as file.offer, drop 'send')
+      MEDIA_DELETE: 'media.delete', // computer->phone {ids}: remove them (phones that say media.remove) | phone->computer {ids: gone, failed, confirm: waiting for Delete tapped on the phone}
       // Files: the phone's storage, through TwinDesk on it with All files access (no ADB). Paths are
       // relative to the phone's shared storage ('' its top, 'DCIM/Camera'), never '..'.
       FS_LIST: 'fs.list', // computer->phone {path, hidden?} | phone->computer {path, items: [{name, dir, size, at, n? (a folder's items)}], free, total, error?}
@@ -483,6 +499,10 @@
     P.clipAllowed = (text) =>
       typeof text === 'string' && Buffer.byteLength(text, 'utf8') <= P.CLIP_MAX_BYTES;
   }
+
+  // Dev: TWINDESK_PING_MS pings the session more often, for finer RTT numbers
+  // in the log's [link] line. Only the ping interval changes; the silence limits stay.
+  if (typeof process !== 'undefined' && process.env && Number(process.env.TWINDESK_PING_MS) >= 50) P.PING_MS = Math.min(P.PING_MS, Number(process.env.TWINDESK_PING_MS));
 
   if (typeof module !== 'undefined' && module.exports) module.exports = P;
   else root.MacShareProtocol = P;
