@@ -268,7 +268,7 @@ UI.tab({
       const busy = !!s.pairing && s.pairing.phase !== 'failed';
       ipBtn.disabled = busy || !!asking;
       const failed = s.pairing && s.pairing.phase === 'failed';
-      ipRow.setHint(asking ? t('Looking for TwinDesk at {address}…', { address: asking }) : failed ? UI.pairingError(s.pairing) : '');
+      ipRow.setHint(asking ? t('Looking for TwinDesk at {address}…', { address: asking }) : failed ? UI.fill(t(s.pairing.error || '')) : '');
       ipRow.hint.classList.toggle('bad', !asking && !!failed);
 
       // found nearby

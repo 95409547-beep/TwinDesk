@@ -18,10 +18,9 @@ UI.tab({
     const { el, api } = UI;
     const t = (...args) => I18n.t(...args);
     const language = UI.select([
-      { value: '', label: t('Follow system language') },
       { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' }, { value: 'ru', label: 'Русский' }, { value: 'tr', label: 'Türkçe' },
     ], (v) => api.setLanguage(v));
-
+    language.set(I18n.locale);
     const PERMS = [
       { kind: 'screen', label: t('Screen Recording'), note: t('To share your screen') },
       { kind: 'accessibility', label: t('mac.accessibility'), note: t('So the other computer can control this one') },
@@ -113,7 +112,6 @@ UI.tab({
     body.append(sections);
 
     return (s) => {
-      language.set(s.ui?.language || '');
       if (s.app) {
         const proto = s.app.inputProtocol === 'tcp' ? 'tcp' : 'udp';
         if (protoStart === null) protoStart = proto;

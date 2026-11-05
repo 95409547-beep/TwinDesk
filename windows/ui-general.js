@@ -17,10 +17,9 @@ UI.tab({
     const { el, api } = UI;
     const t = (...args) => I18n.t(...args);
     const language = UI.select([
-      { value: '', label: t('Follow system language') },
       { value: 'en', label: 'English' }, { value: 'zh-CN', label: '简体中文' }, { value: 'ru', label: 'Русский' }, { value: 'tr', label: 'Türkçe' },
     ], (v) => api.setLanguage(v));
-
+    language.set(I18n.locale);
     const startup = UI.switch((v) => api.setStartup(v), { label: t('Start with Windows') });
     // Received files (shared/received.js): where files sent here and saved from a phone go.
     const recvChange = UI.button(t('Change…'), () => api.chooseReceivedFolder(), 'small');
@@ -102,7 +101,7 @@ UI.tab({
         media.el,
       ]),
       UI.card(t('Language'), [
-        UI.row(t('Language'), t('Changing the language reloads this window.'), [language]),
+        UI.row(t('Language'), t('Some pages are still in English. Changing the language reloads this window.'), [language]),
       ]),
       UI.card(t('Overview'), partRows),
       UI.card(t('Network and Bluetooth'), [bleRow, blePcRow, bleWifiRow, wakeRow, sendToRow]),
@@ -112,7 +111,6 @@ UI.tab({
     body.append(sections);
 
     return (s) => {
-      language.set(s.ui?.language || '');
       if (s.app) {
         const proto = s.app.inputProtocol === 'tcp' ? 'tcp' : 'udp';
         if (protoStart === null) protoStart = proto;

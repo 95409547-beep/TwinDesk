@@ -10,7 +10,7 @@ const { normalizeFolder } = require('../shared/received.js');
 // The keys that can be held to move a window to the other computer (the helper reports these).
 const MOVE_KEYS = ['ControlRight', 'ControlLeft', 'ShiftRight', 'ShiftLeft', 'AltRight', 'AltLeft', 'MetaRight', 'MetaLeft'];
 
-const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'microphone', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
+const TABS = ['phone', 'overview', 'connection', 'mirror', 'papps', 'calls', 'messages', 'media', 'pfiles', 'mac-pc', 'pc-mac', 'cursor', 'keyboard', 'clipboard', 'notifications', 'files', 'mount', 'terminal', 'audio', 'camera', 'remote', 'apps', 'rezume', 'multi', 'general', 'about'];
 
 const OLD_TABS = { display: 'mac-pc', receive: 'mac-pc', share: 'pc-mac' }; // older names
 
@@ -123,7 +123,6 @@ function normalize(s) {
       rotate: [0, 90, 180, 270].includes((s.camera || {}).rotate) ? s.camera.rotate : 0,
       device: typeof (s.camera || {}).device === 'string' ? s.camera.device.slice(0, 200) : '',
     },
-    microphone: require('../shared/microphone-settings').normalize(s.microphone),
     audio: {
       receive: bool(audio.receive, was), // play the Mac's sound here (audio.policy W→M)
       volume: Math.round(num(audio.volume, 1, 0, 1) * 100) / 100,
@@ -236,7 +235,7 @@ function pairSync(v) {
   for (const [id, feats] of Object.entries(v).slice(0, 20)) {
     if (!feats || typeof feats !== 'object') continue;
     out[id] = {};
-    for (const [f, d] of Object.entries(feats).slice(0, 16)) {
+    for (const [f, d] of Object.entries(feats).slice(0, 10)) {
       if (f === 'values') {
         out[id].values = {};
         if (d && ['fast', 'smooth'].includes(d.pace)) out[id].values.pace = d.pace;

@@ -21,7 +21,6 @@ const FEATURES = {
   notifs: { out: ['notifs', 'send'], in: ['notifs', 'receive'] },
   apps: { out: ['apps', 'offer'], in: ['papps', 'on'] },
   audio: { out: ['audio', 'send'], in: ['audio', 'receive'] },
-  microphone: { out: ['microphone', 'send'], in: ['microphone', 'receive'] },
   cursor: { out: ['kvm', 'driveOther'], in: ['kvm', 'beDriven'] },
   rezume: { out: ['rezume', 'send'], in: ['rezume', 'receive'] },
   remote: { in: ['remote', 'allow'] },

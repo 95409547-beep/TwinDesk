@@ -64,9 +64,6 @@ func handle(_ line: String) {
   Capture.shared.touch() // every command is a keepalive for the capture dead-man
   let num = { (k: String, d: Double) in (msg[k] as? NSNumber)?.doubleValue ?? d }
   switch cmd {
-  case "microphoneConfig":
-    Capture.shared.microphoneEnabled = (msg["on"] as? Bool) == true
-    reply(id)
   case "kvmConfig":
     Capture.shared.edgeZones = zones(msg["zones"])
     Capture.shared.takeBack = (msg["takeBack"] as? Bool) ?? true

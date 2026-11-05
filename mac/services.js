@@ -55,18 +55,6 @@ function startServices({ server, getSettings, pushState, onHelperReady }) {
   const pcApps = new PcApps({ server, getSettings: s });
   const notifs = new Notifs({ server, helper, getSettings: s, saveSettings: () => store.saveSettings(s()) });
   const fileClip = new FileClip({ server, helper, fileSend, drop, getSettings: s });
-  const microphone = require('../shared/microphone-runtime').attach({
-    platform: 'mac', helper, settings: s(), save: () => store.saveSettings(s()), changed: pushState,
-    route: { mode: () => kvm.mode, generation: () => kvm.route, incoming: () => kvm.peerRoute },
-    link: {
-      connected: () => !!(server.current && server.current.authed), os: () => server.current && server.current.os,
-      transport: () => server.current && server.current.transport,
-      onConnect: (fn) => server.on('client', fn), onDisconnect: (fn) => server.on('closed', fn),
-      on: (t, fn) => server.on('t:' + t, (m, ctx) => { if (ctx === server.current) fn(m); }),
-      send: (m) => server.sendToClient(m),
-    },
-  });
-  kvm.on('where', () => microphone.routeChanged());
   kvm.fileClip = fileClip;
   fileClip.kvm = kvm; // the shortcut while the pointer is over there (keyboard not shared)
   const appSend = new AppSend({ server, helper, displays, getSettings: s }); // This Mac's apps on another computer
@@ -113,9 +101,8 @@ function startServices({ server, getSettings, pushState, onHelperReady }) {
   helper.start();
 
   return {
-    microphone, helper, displays, stream, input, clipboard, kvm, terminal, drop, smb, apps, sshClient, audio, pcView, pcApps, hub, fileSend, notifs, fileClip, wake, appSend, updateAwake,
+    helper, displays, stream, input, clipboard, kvm, terminal, drop, smb, apps, sshClient, audio, pcView, pcApps, hub, fileSend, notifs, fileClip, wake, appSend, updateAwake,
     shutdown() {
-      microphone.shutdown();
       pcView.shutdown();
       pcApps.shutdown();
       appSend.shutdown();

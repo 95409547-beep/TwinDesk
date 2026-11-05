@@ -60,7 +60,6 @@ contextBridge.exposeInMainWorld('macshare', {
   relaunch: call('relaunch'),
   setEncoder: call('setEncoder'),
   setAudio: call('setAudio'),
-  microphone: call('microphone'),
   camera: call('camera'),
   phoneMedia: call('phoneMedia'),
   phoneBtPick: call('phoneBtPick'),

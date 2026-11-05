@@ -1,7 +1,3 @@
-> **共享麦克风开发分支**：双向分页与开关同步候选、方案对比与验证边界见 [研究与使用说明](docs/shared-microphone/README.md)。支持通用应用和 Windows 豆包语音输入用途，真实双机尚未验收。
-
-已合并官方 2.5.1，沿用官方中文及多语言框架。「通用 → 语言」保留官方四种语言，并支持跟随系统。按住 F8 的麦克风分页和豆包安装检测保留；官方持续共享位于「音频 → 麦克风」。早期漏译对照来自 [zlonej 的 TwinDesk 2.4.0 Windows 汉化](https://github.com/zlonej/twindesk-zh/tree/610594e)。
-
 <p align="center">
   <img src=".github/assets/icon.png" width="112" alt="TwinDesk icon">
 </p>

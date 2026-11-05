@@ -6,23 +6,16 @@ const os = require('os');
 const path = require('path');
 const vm = require('vm');
 const { createRequire } = require('module');
-const I18n = require('../i18n.js');
 const ROOT = path.resolve(__dirname, '../..');
 
 // Exercise each real IPC module, with only Electron's transport replaced.
 for (const mode of ['windows', 'windows/mesh']) {
   const handlers = new Map();
-  const dialogs = [];
   const filename = path.join(ROOT, mode, 'ipc.js');
   const localRequire = createRequire(filename);
   const mod = { exports: {} };
   vm.runInNewContext(fs.readFileSync(filename, 'utf8'), {
-    require: (name) => name === 'electron' ? {
-      ipcMain: { handle: (key, fn) => handlers.set(key, fn) },
-      app: { getPath: () => 'C:\\Downloads' },
-      BrowserWindow: { getFocusedWindow: () => null },
-      dialog: { showOpenDialog: (_win, options) => { dialogs.push(options); return Promise.resolve({ canceled: true }); } },
-    } : localRequire(name),
+    require: (name) => name === 'electron' ? { ipcMain: { handle: (key, fn) => handlers.set(key, fn) } } : localRequire(name),
     module: mod, __dirname: path.dirname(filename), console, process: { env: {} },
   }, { filename });
   const model = localRequire('./settings');
@@ -32,7 +25,6 @@ for (const mode of ['windows', 'windows/mesh']) {
     save() { stored = JSON.parse(JSON.stringify(this.settings)); },
     push() { pushes++; },
     onLanguage() { reloads++; },
-    t(...args) { return I18n.create(ctx.settings.ui.language).t(...args); },
   };
   mod.exports(ctx);
   assert.ok(handlers.has('setLanguage'), `${mode} has the language action`);
@@ -44,21 +36,11 @@ for (const mode of ['windows', 'windows/mesh']) {
   assert.strictEqual(stored.ui.tab, 'general', 'switching languages keeps the selected page');
   assert.strictEqual(reloads, 1);
   assert.strictEqual(pushes, 1);
-  handlers.get('chooseReceivedFolder')({});
-  assert.strictEqual(dialogs.at(-1).title, '选择接收文件的保存文件夹');
-  assert.strictEqual(dialogs.at(-1).buttonLabel, '使用此文件夹');
   set('zh-CN');
   assert.strictEqual(reloads, 1, 'the same preference does not reload again');
   set('en');
   assert.strictEqual(stored.ui.language, 'en');
   assert.strictEqual(reloads, 2);
-  handlers.get('chooseReceivedFolder')({});
-  assert.strictEqual(dialogs.at(-1).title, 'Folder for received files');
-  set('');
-  assert.strictEqual(stored.ui.language, '', 'following the system clears the override');
-  assert.strictEqual(reloads, 3);
-  set('');
-  assert.strictEqual(reloads, 3);
 }
 
 // Run the installer's actual resource-copy logic in a temporary staging directory.

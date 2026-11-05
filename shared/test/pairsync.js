@@ -11,7 +11,7 @@ const { PairSync: MacSync } = require('../../mac/pairsync.js');
 const P = require('../protocol.js');
 
 const base = (rezume) => ({
-  pairSync: {}, microphone: { send: false, receive: false },
+  pairSync: {},
   monitor: { pacing: 'fast' }, sharing: { pace: 'fast' },
   kvm: { gestures: true, ble: true, keyboard: true, speed: 1, reverseScroll: false },
   rezume: { on: false, send: true, receive: true, ...rezume },
@@ -125,26 +125,4 @@ function pcs(a, b, savedA, savedB, only) {
   assert.deepStrictEqual(sent, [{ t: P.T.PAIR_SYNC, key: 'rezume', value: true }], 'on here reaches the phone');
 }
 
-// Microphone uses exactly the Audio page's out/in mapping and per-device storage.
-{
- const p = pcs(base(), base());
- p.flip(p.a.microphone, { send: true });
- assert.strictEqual(p.b.microphone.receive, true);
- assert.strictEqual(p.b.microphone.send, false);
- p.flip(p.b.microphone, { send: true });
- assert.strictEqual(p.a.microphone.receive, true);
- p.flip(p.b.microphone, { receive: false });
- assert.strictEqual(p.a.microphone.send, false);
- assert.strictEqual(p.a.microphone.receive, true);
- p.flip(p.a.microphone, { send: false, receive: false });
- assert.ok(!p.b.microphone.send && !p.b.microphone.receive);
-}
-{
- const { normalize } = require('../../windows/settings');
- const features = Object.fromEntries(Object.keys(require('../../windows/pairsync').FEATURES).map(f=>[f,{out:true,in:false}]));
- features.values = { pace:'smooth', keyboard:true };
- const settings = normalize({ pairSync:{ peer:features } });
- assert.strictEqual(settings.pairSync.peer.microphone.out, true);
- assert.strictEqual(settings.pairSync.peer.values.pace, 'smooth', 'adding Microphone cannot truncate saved shared values');
-}
 console.log('pairsync: passed');

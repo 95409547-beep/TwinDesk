@@ -16,8 +16,8 @@
   // Sidebar groups: no headings, one icon column, a small gap between groups: the device and
   // Connection, the phone's own things, screens, input, sharing, media; General below a line.
   // ORDER places each tab (the tab files' own order is the fallback), as in ../app.js.
-  const GROUP = { overview: 0, connection: 0, messages: 1, calls: 1, media: 1, papps: 1, mirror: 2, 'mac-pc': 2, 'pc-mac': 2, apps: 2, cursor: 3, keyboard: 3, remote: 3, clipboard: 4, notifications: 4, files: 4, pfiles: 4, mount: 4, audio: 5, microphone: 5, camera: 5, rezume: 5, terminal: 5 };
-  const ORDER = { overview: 0, connection: 1, messages: 5, calls: 6, media: 7, papps: 8, mirror: 10, 'mac-pc': 11, 'pc-mac': 12, apps: 13, cursor: 20, keyboard: 21, remote: 22, clipboard: 40, notifications: 41, files: 42, pfiles: 43, mount: 44, audio: 60, microphone: 60.5, camera: 61, rezume: 62, terminal: 63, multi: 95, general: 100, about: 110 };
+  const GROUP = { overview: 0, connection: 0, messages: 1, calls: 1, media: 1, papps: 1, mirror: 2, 'mac-pc': 2, 'pc-mac': 2, apps: 2, cursor: 3, keyboard: 3, remote: 3, clipboard: 4, notifications: 4, files: 4, pfiles: 4, mount: 4, audio: 5, camera: 5, rezume: 5, terminal: 5 };
+  const ORDER = { overview: 0, connection: 1, messages: 5, calls: 6, media: 7, papps: 8, mirror: 10, 'mac-pc': 11, 'pc-mac': 12, apps: 13, cursor: 20, keyboard: 21, remote: 22, clipboard: 40, notifications: 41, files: 42, pfiles: 43, mount: 44, audio: 60, camera: 61, rezume: 62, terminal: 63, multi: 95, general: 100, about: 110 };
   const orderOf = (d) => ORDER[d.id] ?? d.order ?? 50;
   let lastGroup;
   let gap = null; // the gap before the current group (hidden with the group: renderSidebar)
@@ -310,7 +310,7 @@
       starting: t('Waiting for {name}…', { name: p.macName }),
       code: t('Check that {name} shows the same code, then click Codes match.', { name: p.macName }),
       waiting: t('Waiting for Allow on {name}…', { name: p.macName }),
-      failed: UI.pairingError(p),
+      failed: p.error,
       request: p.wired ? (p.allowed ? t('Pairing…') : t('{name} is on the USB cable. Click Allow to pair.', { name: p.macName })) : !p.code ? t('Waiting for the code…') : p.allowed ? t('Waiting for {name}…', { name: p.macName }) : t('Check that {name} shows the same code, then click Allow.', { name: p.macName }),
     };
     $('pair-hint').textContent = hints[p.phase] || '';

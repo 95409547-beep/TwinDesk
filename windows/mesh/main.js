@@ -127,7 +127,6 @@ let notifs = null;
 let fileClip = null;
 let sshd = null;
 let kvm = null;
-let microphone = null;
 let lockKey = null; // the cursor lock key at home (shared/cursorlock.js)
 let layoutSync = null; // layout-sync.js: where every paired device sits; the kvm's edges come from it
 let wired = null; // wired.js, with the phone
@@ -231,9 +230,6 @@ function start() {
     onChange: () => { if (kvm) kvm.layoutChanged(); pushState(); },
   });
   kvm = new Kvm({ hub, layoutSync, helper, clip, fileDrop, fileRecv, dragRecv, settings, save: saveSettings, onChange: onKvmChange });
-  microphone = require('../../shared/microphone-runtime').attach({
-    platform: 'win', mesh: { hub, kvm, store }, helper, settings, changed: pushState,
-  });
   require('../../shared/applog.js').linkStats(() => kvm.linkSample()); // the link's line in the log every 30 s
   hud = new Hud(() => settings);
   // Cursor sharing switched on/off (hotkey double-tap, tray, or the other computer): the big card.
@@ -364,7 +360,7 @@ function start() {
     },
   });
   updates.start();
-  const ipc = setupIpc({ devctl: () => devctl, chats: () => chats, hub, link, discovery, screen, clip, kvm, layoutSync, terminal, sshd, fileDrop, smb, apps, sound, microphone, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, updates, settings, save: saveSettings, push: pushState, buildState, t,
+  const ipc = setupIpc({ devctl: () => devctl, chats: () => chats, hub, link, discovery, screen, clip, kvm, layoutSync, terminal, sshd, fileDrop, smb, apps, sound, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, updates, settings, save: saveSettings, push: pushState, buildState,
     get phone() { return phone; }, get phoneViews() { return phone ? phone.views : null; }, get phoneDrive() { return phoneDrive; }, connectPhoneDev, cancelPhoneInvite, phoneHub: loadHub, loadMic,
     get net() { return net; }, applyNet, joinHotspot, applyMesh: () => autoJoin && autoJoin.schedule(),
     checkFirewall, fixFirewall, setStartup, onApp: updateTray, onLanguage: changeLanguage, onLook: () => Look.applyTheme(nativeTheme, settings.ui.theme) });
@@ -886,7 +882,6 @@ function buildState() {
     updates: updates ? updates.view : null,
     firewall: fw,
     audio: { ...settings.audio, ...sound.view(), mic: mic ? mic.view() : null },
-    microphone: microphone?.view,
     pcScreen: pcScreen.view(),
     pcApps: pcApps.view(),
     macApps: settings.macApps,
@@ -920,7 +915,6 @@ function ownAddresses() {
 
 // KVM mode changed: Monitor 2 stops/starts sending input, and the UI updates.
 function onKvmChange() {
-  microphone?.routeChanged();
   if (kvm.mode !== lastMode) {
     lastMode = kvm.mode;
     screen.refreshInput();
@@ -1008,7 +1002,6 @@ function createMainWindow() {
   win.once('ready-to-show', show);
   // Match the ordinary window's fallback without revealing a start-to-tray launch.
   win.webContents.once('did-finish-load', show);
-  win.on('focus', () => microphone?.checkDoubao());
   mainWin.on('close', (e) => {
     saveBounds();
     if (!quitting) {
@@ -1158,7 +1151,6 @@ function loadMic() {
 app.on('before-quit', () => {
   if (mic) mic.shutdown();
   quitting = true;
-  microphone?.shutdown();
   saveBounds();
   if (discovery) discovery.stop();
   if (pcScreen) pcScreen.shutdown();

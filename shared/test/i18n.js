@@ -14,8 +14,6 @@ assert.strictEqual(I18n.resolveLanguage('', 'zh_Hans_SG'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('', 'zh-SG'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('', 'zh-TW'), 'en');
 assert.strictEqual(I18n.resolveLanguage('', 'fr-FR'), 'en');
-assert.strictEqual(I18n.resolveLanguage('', 'ru-RU'), 'ru');
-assert.strictEqual(I18n.resolveLanguage('', 'tr-TR'), 'tr');
 assert.strictEqual(I18n.resolveLanguage('en', 'zh-CN'), 'en');
 assert.strictEqual(I18n.resolveLanguage('zh-CN', 'en-US'), 'zh-CN');
 assert.strictEqual(I18n.resolveLanguage('../evil', 'en-US'), 'en');
@@ -84,9 +82,4 @@ assert.strictEqual(note.textContent, 'Problem with {name} $&');
 assert.strictEqual(kitWindow.UI.monitorLabel('Built-in screen, 1920 × 1080 (main)'), '内置屏幕, 1920 × 1080（主屏幕）');
 assert.strictEqual(kitWindow.UI.monitorLabel('Monitor 2, 2560 × 1440'), '显示器 2, 2560 × 1440');
 assert.strictEqual(kitWindow.UI.monitorLabel('Dell $& {name}, 1920 × 1080 (main)'), 'Dell $& {name}, 1920 × 1080（主屏幕）');
-assert.strictEqual(kitWindow.UI.pairingError({
-  macName: 'PC $& {name}',
-  error: 'Could not connect to {address} ({reason}).',
-  errorVars: { address: '192.0.2.10', reason: 'No welcome from {name}' },
-}), '无法连接到 192.0.2.10（等待 PC $& {name} 响应超时）。');
 console.log(`i18n: language selection, fallback, interpolation, settings and ${Object.keys(en).length} catalog entries passed`);

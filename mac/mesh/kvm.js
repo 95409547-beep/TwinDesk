@@ -481,7 +481,6 @@ class Kvm extends EventEmitter {
       const relay = this._relayFor(id);
       if (relay) { target = relay; via = id; }
     }
-    this.via = via;
     this.viaSide = via && fields.where.side ? P.opposite(fields.where.side) : null; // our edge that leads to the phone
     this.partner = target;
     this.lanes.drive.reset(this.route);

@@ -124,6 +124,7 @@ UI.tab({
       fn();
       setTimeout(redraw, LIMIT_MS + 50);
     };
+    const named = (text, dev) => String(text || '').replace(/\{name\}|\{Name\}/g, () => dev.name);
     // {busy, text} | {code} | {wait} | {fail, text} | {ok, text} | null
     function rowState(s, dev, online) {
       const p = s.pairing && s.pairing.role !== 'host' && (s.pairing.id ? s.pairing.id === dev.id : s.pairing.address === dev.address) ? s.pairing : null;
@@ -140,7 +141,7 @@ UI.tab({
       if (p) {
         if (mine) mine.seen = true;
         if (p.phase === 'failed') {
-          const error = UI.pairingError(p, dev.name);
+          const error = named(t(p.error || ''), dev);
           return { fail: true, text: s.firewall && s.firewall.ok === false ? t('{error} {hint}', { error, hint: t('The firewall blocks TwinDesk here: Fix firewall above.') }) : error };
         }
         if (p.phase === 'code') return { code: p.code };
@@ -221,7 +222,7 @@ UI.tab({
       const busy = !!s.pairing && s.pairing.phase !== 'failed';
       ipBtn.disabled = busy || !!asking;
       const failed = s.pairing && s.pairing.phase === 'failed';
-      ipRow.setHint(asking ? t('Looking for TwinDesk at {address}…', { address: asking }) : failed ? UI.pairingError(s.pairing) : '');
+      ipRow.setHint(asking ? t('Looking for TwinDesk at {address}…', { address: asking }) : failed ? UI.fill(t(s.pairing.error || '')) : '');
       ipRow.hint.classList.toggle('bad', !asking && !!failed);
 
       // found nearby

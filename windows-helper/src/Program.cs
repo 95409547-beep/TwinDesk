@@ -244,12 +244,6 @@ namespace MacShare
                 switch (cmd)
                 {
                     case "ping": case "keepalive": break;
-                    case "microphoneConfig":
-                        capture.MicrophoneEnabled = Json.Bool(c, "on", false);
-                        break;
-                    case "doubaoInstalled":
-                        Async(c, delegate (Dictionary<string, object> r) { r["installed"] = DoubaoInputMethod.IsInstalled(); });
-                        return;
                     case "kvmConfig":
                         capture.TakeBack = Json.Bool(c, "takeBack", true);
 #if MULTI

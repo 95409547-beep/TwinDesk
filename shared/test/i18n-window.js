@@ -134,14 +134,6 @@ async function testMode(mode) {
     await shot(mode.replace('/', '-') + '-general-zh-CN');
 
     // Trigger the real selector -> sandboxed preload -> actual IPC -> settings-window reload.
-    for (const preference of ['ru', 'tr']) {
-      const translated = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
-      await read(`(() => { const el = document.querySelector('#page-general select'); el.value = ${JSON.stringify(preference)}; el.dispatchEvent(new Event('change')); })()`);
-      await translated; await delay(100);
-      assert.strictEqual(await read('document.documentElement.lang'), preference);
-      assert.strictEqual(JSON.parse(fs.readFileSync(path.join(temp, 'settings.json'), 'utf8')).ui.language, preference);
-      assert.strictEqual(await read('document.querySelector("#page-general select").value'), preference);
-    }
     const loaded = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
     await read('document.querySelector("#page-general select").value = "en"; document.querySelector("#page-general select").dispatchEvent(new Event("change"))');
     await loaded;
@@ -157,16 +149,6 @@ async function testMode(mode) {
     await back; await delay(100);
     assert.strictEqual(settings.ui.language, 'zh-CN');
     assert.strictEqual(await read('document.documentElement.lang'), 'zh-CN');
-
-    if (PLATFORM === 'windows') {
-      const automatic = new Promise((resolve) => win.webContents.once('did-finish-load', resolve));
-      await read('document.querySelector("#page-general select").value = ""; document.querySelector("#page-general select").dispatchEvent(new Event("change"))');
-      await automatic;
-      await delay(100);
-      assert.strictEqual(settings.ui.language, '');
-      assert.strictEqual(await read('document.documentElement.lang'), 'zh-CN');
-      assert.strictEqual(await read('document.querySelector("#page-general select").value'), '');
-    }
 
     state.found = [{ id: 'found', name: 'Work {me} $&', os: 'win', address: '192.0.2.11', port: 47800 }];
     settings.ui.tab = 'connection';

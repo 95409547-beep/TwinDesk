@@ -10,7 +10,6 @@ const { apply } = require('./settings');
 // ctx: link, discovery, screen, clip, kvm, terminal, fileDrop, smb, apps, phone, phoneViews, connectPhoneDev(d), settings, save(), push(), buildState(),
 //      checkFirewall(), fixFirewall(), setStartup(on)
 function setupIpc(ctx) {
-  const t = ctx.t || ((text) => text);
   const { link, discovery, screen, clip, kvm, sshd, fileDrop, smb, apps, sound, pcScreen, pcApps, peerApps, vdd, notifs, fileClip, wake, settings } = ctx;
 
   const handle = (name, fn) => ipcMain.handle(name, (_e, ...args) => fn(...args));
@@ -24,7 +23,7 @@ function setupIpc(ctx) {
   handle('getState', () => ctx.buildState());
   // A local UI preference: never synchronized to another device.
   handle('setLanguage', (language) => {
-    if ((language !== '' && !require('../shared/i18n.js').savedLanguage(language))) return;
+    if (!require('../shared/i18n.js').savedLanguage(language)) return;
     change('ui', { language }, () => ctx.onLanguage());
   });
   // General › Appearance: { theme } and/or { accent } ('' follows the system); local only.
@@ -119,10 +118,6 @@ function setupIpc(ctx) {
   handle('setChats', (on) => { change('ui', { chats: on === true }); if (ctx.chats && ctx.chats()) ctx.chats().sync(); }); // Messages: WhatsApp, Telegram and Instagram there too
   handle('setOverview', (o) => o && typeof o === 'object' && change('ui', { overview: { ...settings.ui.overview, ...o } })); // General › Overview // invalid names fall back in normalize()
   handle('setMulti', (on) => require('./multi').set(on === true)); // Multi-device: TwinDesk restarts
-  handle('microphone', (m) => {
-    if (m?.do === 'downloadDoubao') return shell.openExternal('https://shurufa.doubao.com/pc');
-    return ctx.microphone?.action(m);
-  });
   handle('setEncoder', (hw) => { require('./encoder').write(hw !== false); ctx.push(); }); // General › Advanced › Hardware encoder (#133): applies after a restart
   handle('relaunch', () => { app.relaunch({ args: process.argv.slice(1).filter((a) => a !== '--hidden') }); app.quit(); }); // General › Advanced: a setting read at startup
   handle('setAudio', (partial) => change('audio', partial, () => {
@@ -196,7 +191,7 @@ function setupIpc(ctx) {
   handle('sendFiles', sendFiles);
   handle('chooseSendFiles', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: t('Send files'), buttonLabel: t('Send'), properties: ['openFile', 'multiSelections'] });
+    const r = await dialog.showOpenDialog(win, { title: 'Send files', buttonLabel: 'Send', properties: ['openFile', 'multiSelections'] });
     if (!r.canceled) sendFiles(r.filePaths);
   });
   handle('setNotifs', (partial) => {
@@ -210,7 +205,7 @@ function setupIpc(ctx) {
   // General › Received files (shared/received.js): chosen here only, never by the page itself.
   handle('chooseReceivedFolder', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: t('Folder for received files'), buttonLabel: t('Use this folder'),
+    const r = await dialog.showOpenDialog(win, { title: 'Folder for received files', buttonLabel: 'Use this folder',
       defaultPath: receivedDir(settings, app.getPath('downloads')), properties: ['openDirectory', 'createDirectory'] });
     if (!r.canceled && r.filePaths[0]) change('files', { receivedFolder: r.filePaths[0] });
   });
@@ -219,7 +214,7 @@ function setupIpc(ctx) {
   handle('setShareOn', (on) => smb.setShareOn(on === true));
   handle('chooseShareFolder', async () => {
     const win = BrowserWindow.getFocusedWindow();
-    const r = await dialog.showOpenDialog(win, { title: t('Folder to share with the other computer'), properties: ['openDirectory', 'createDirectory'] });
+    const r = await dialog.showOpenDialog(win, { title: 'Folder to share with the other computer', properties: ['openDirectory', 'createDirectory'] });
     if (!r.canceled && r.filePaths[0]) await smb.chooseFolder(r.filePaths[0]);
   });
   handle('removeShare', () => smb.unshare());
@@ -307,7 +302,6 @@ function setupIpc(ctx) {
     monitor: () => screen.applyAudio(), // pacing (pair.sync 'pace')
     notifs: () => notifs.applySettings(),
     audio: () => sound.apply(),
-    microphone: () => ctx.microphone && ctx.microphone.applySettings(),
     kvm: () => kvm.applyConfig(),
     pcApps: () => { pcApps.apply(); pcApps.input.release(); },
     rezume: () => (ctx.rezume ? ctx.rezume.apply() : ctx.loadReZume()),

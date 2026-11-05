@@ -131,9 +131,9 @@
         let text = '';
         if (!c.on) text = tr('Off: turn on Camera at the top');
         else if (!on) text = UI.fill(why || tr('Press Start to run {name}’s camera here'));
-        else if (phone && w && w.error) text = tr('It stopped: {error}', { error: tr(w.error) });
+        else if (phone && w && w.error) text = tr('It stopped: {error}', { error: w.error });
         else if (!phone && c.viewStatus === 'refused') text = UI.fill(tr('Turn on “Let {me} see this camera” on {name}'));
-        else if (!phone && c.viewStatus === 'failed') text = tr('It didn’t start: {error}', { error: tr(c.viewError || 'unknown') });
+        else if (!phone && c.viewStatus === 'failed') text = tr('It didn’t start: {error}', { error: c.viewError || tr('unknown') });
         else if (!phone && c.viewStatus === 'ended') text = UI.fill(tr('{name} stopped its camera'));
         else if (!v.picture) text = phone ? tr('Starting the phone’s camera…') : UI.fill(tr('Asking {name} for its camera…'));
         said.textContent = text;

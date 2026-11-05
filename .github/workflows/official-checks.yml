@@ -1,0 +1,45 @@
+name: Official upstream checks
+
+on:
+  push:
+    branches: [feature/shared-microphone]
+    paths:
+      - 'mac/**'
+      - 'mac-helper/**'
+      - 'shared/**'
+      - 'windows/**'
+      - 'windows-helper/**'
+      - '.github/workflows/official-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Official microphone, settings and UI checks
+        shell: bash
+        run: |
+          node shared/test/mic.js
+          node shared/test/phone-mic.js
+          node shared/test/page-scripts.js
+          node shared/test/pairsync.js
+          node shared/test/i18n.js
+          node shared/test/i18n-integration.js
+          node shared/test/i18n-mac.js
+          node shared/test/i18n-mac-general.js
+          node shared/test/sidebar-model.js
+          node shared/test/packaging.js
+      - name: Compile official Windows native helpers
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: call windows-helper\build.cmd

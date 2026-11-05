@@ -222,7 +222,6 @@ function publishState() {
     if (stream) {
       state.stream = stream.view;
       state.audio = { ...settings.audio, ...svc.audio.view, screen: stream.audio, mic: svc.mic ? svc.mic.view() : null };
-      state.microphone = svc.microphone.view;
     }
     state.streamInput = settings.streamInput !== false;
     state.displayMode = displayMode();

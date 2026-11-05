@@ -59,8 +59,6 @@ final class Capture {
   // capture
   private(set) var capturing = false
   private var capMouse = false, capKeyboard = false
-  var microphoneEnabled = false
-  private var microphoneHeld = false
   var gestures = true // Send trackpad gestures (k.ge) while capturing
   private var dock: (motion: Int64, progress: Double)? = nil // the dock swipe in progress
   private var pinnedAt: CGPoint?            // where the pointer stays (hidden) while it is on the other computer
@@ -574,19 +572,6 @@ final class Capture {
     hkStage = 0
     if down { flushHotkey() }
     let kc = UInt16(e.getIntegerValueField(.keyboardEventKeycode))
-    let microphoneModifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand]
-    if KeyCodes.code(kc) == "F8" && (microphoneHeld || (microphoneEnabled && capturing && capKeyboard && !localDown.contains(kc) && e.flags.intersection(microphoneModifiers).isEmpty)) {
-      if down {
-        if !microphoneHeld && e.getIntegerValueField(.keyboardEventAutorepeat) == 0 {
-          microphoneHeld = true
-          emit(["event": "microphoneKey", "down": true])
-        }
-      } else if microphoneHeld {
-        microphoneHeld = false
-        emit(["event": "microphoneKey", "down": false])
-      }
-      return true
-    }
     if capturing && capKeyboard {
       if !down && localDown.remove(kc) != nil { return false }
       guard let code = KeyCodes.code(kc, kbType: e.getIntegerValueField(.keyboardEventKeyboardType)) else { return true }

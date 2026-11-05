@@ -232,7 +232,6 @@ function pushState() {
     state.keys = settings.keys;
     state.clipboard = clip ? { ...settings.clipboard, ...clip.view } : null;
     // on: the switch (turned off, CamShare stays loaded but stopped).
-    state.microphone = svc && svc.microphone ? svc.microphone.view : null;
     state.camera = svc && svc.camShare ? { ...svc.camShare.state, on: settings.camera.on !== false } : svc ? { on: false } : null;
     state.vcam = svc && svc.vcam ? svc.vcam.view() : svc ? { checked: true, supported: true, on: false } : null;
     state.rezume = svc && svc.rz ? svc.rz.view : svc ? { ...settings.rezume, connected: false } : null; // ReZume tab (shared/rezume.js)
@@ -877,7 +876,6 @@ app.whenReady().then(() => {
     clipboard: (dir, on) => actions.setClipboard({ [dir === 'out' ? 'send' : 'receive']: on }),
     notifs: (dir, on) => actions.setNotifs({ [dir === 'out' ? 'send' : 'receive']: on }),
     apps: (dir, on) => (dir === 'out' ? actions.setApps({ offer: on }) : actions.setPcApps({ on })),
-    microphone: (dir, on) => actions.microphone({ do: 'settings', settings: { [dir === 'out' ? 'send' : 'receive']: on } }),
     audio: (dir, on) => actions.setAudio({ [dir === 'out' ? 'send' : 'receive']: on }),
     cursor: (dir, on) => actions.setKvm({ [dir === 'out' ? 'driveOther' : 'beDriven']: on }),
     rezume: (dir, on) => actions.setRezume({ [dir === 'out' ? 'send' : 'receive']: on }),

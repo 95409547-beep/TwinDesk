@@ -39,7 +39,7 @@ function render(locale) {
     vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../../mac/ui-' + name + '.js'), 'utf8'), context);
   }
   const general = tabs.general.build(el('general')), about = tabs.about.build(el('about'));
-  const s = { permissions: { screen: 'granted', accessibility: true, inputMonitoring: true }, ui: { language: locale },
+  const s = { permissions: { screen: 'granted', accessibility: true, inputMonitoring: true }, ui: {},
     net: { ble: true, blePc: true, radio: 'unauthorized' }, wake: {}, helper: { running: true }, macName: 'Allowed {name} $&',
     about: { app: { name: 'Native {name}', version: '1.2.3', thanks: 'Allowed {name}' }, pc: { cpu: 'CPU {name}', cores: 8 } },
     updates: { available: true, skipped: true, latest: '2.0', current: '1.2.3', download: { name: 'Allowed {name} $&.dmg' } } };
@@ -49,13 +49,10 @@ function render(locale) {
   assert.strictEqual(selectors.length, 2, 'General and Setup both expose the language selector');
   for (const selector of selectors) {
     assert.strictEqual(selector.value, locale);
-    assert.deepStrictEqual(Array.from(selector.options, (o) => o.label), [t('Follow system language'), 'English', '简体中文', 'Русский', 'Türkçe']);
+    assert.deepStrictEqual(Array.from(selector.options, (o) => o.label), ['English', '简体中文', 'Русский', 'Türkçe']);
     selector.change(locale === 'en' ? 'zh-CN' : 'en');
   }
   assert.strictEqual(calls.filter(([key]) => key === 'setLanguage').length, 2);
-  general({ ...s, ui: { language: '' } });
-  ui.setup.render({ ...s, ui: { language: '' } });
-  assert.ok(selectors.every((selector) => selector.value === ''), 'system preference stays selected after resolving the actual locale');
   assert.ok(nodes.some((n) => n.label === translated('Screen Recording')));
   assert.strictEqual(nodes.filter((n) => n.tag === 'row' && n.label === t('mac.accessibility')).length, 2, 'both macOS permission lists use the contextual Accessibility label');
   assert.ok(nodes.some((n) => n.textContent === translated('Allowed by Accessibility')));
